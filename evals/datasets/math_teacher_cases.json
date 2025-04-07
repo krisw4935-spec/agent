@@ -1,0 +1,45 @@
+{
+  "description": "Standard regression cases for the math teacher agent. Each case targets a router intent.",
+  "cases": [
+    {
+      "id": "explain_pythagoras",
+      "intent": "explain",
+      "message": "什么是勾股定理？请用通俗的话解释，不要直接给证明题答案。"
+    },
+    {
+      "id": "explain_derivative",
+      "intent": "explain",
+      "message": "能解释一下导数的几何意义吗？"
+    },
+    {
+      "id": "verify_correct_quadratic",
+      "intent": "verify",
+      "message": "我的解答：解方程 x²-5x+6=0\n步骤1：因式分解 (x-2)(x-3)=0\n步骤2：x=2 或 x=3\n请帮我检查有没有错。"
+    },
+    {
+      "id": "verify_wrong_chain_rule",
+      "intent": "verify",
+      "message": "我的解答：求 d/dx[sin(x²)]\n步骤1：cos(x²)\n请指出错误在哪里。"
+    },
+    {
+      "id": "practice_linear",
+      "intent": "practice",
+      "message": "给我出2道一元一次方程的练习题，附带提示但不要给完整答案。"
+    },
+    {
+      "id": "practice_fraction",
+      "intent": "practice",
+      "message": "我想练习分数加减，请出3道题。"
+    },
+    {
+      "id": "solve_quadratic",
+      "intent": "solve",
+      "message": "解方程 x²-5x+6=0，写出详细步骤。"
+    },
+    {
+      "id": "solve_integral",
+      "intent": "solve",
+      "message": "计算 ∫x·e^x dx"
+    }
+  ]
+}

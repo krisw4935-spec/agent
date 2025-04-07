@@ -1,0 +1,178 @@
+"""Agent skills registry for domain-specific mathematical tutoring capabilities."""
+
+from typing import Dict, List, Optional
+
+from langchain_core.tools.base import BaseTool
+
+from app.core.langgraph.tools.ask_human import ask_human
+from app.core.langgraph.tools.math_plotter import plot_math_function
+from app.core.langgraph.tools.python_sandbox import python_sandbox_execute
+from app.core.langgraph.tools.sympy_calculator import sympy_calculate
+from app.core.logging import logger
+from app.core.skills.base import Skill
+
+
+class SkillRegistry:
+    """Registry that manages agent skills, tools, and domain instructions."""
+
+    def __init__(self):
+        """Initialize registry and register default skills."""
+        self._skills: Dict[str, Skill] = {}
+        self._node_skill_mappings: Dict[str, List[str]] = {
+            "explain": ["math_visualization", "algebra_calculus", "python_sandbox"],
+            "verify": ["algebra_calculus", "python_sandbox", "math_visualization"],
+            "practice": ["algebra_calculus", "math_visualization", "python_sandbox"],
+            "chat": ["algebra_calculus", "math_visualization", "python_sandbox", "student_clarification"],
+        }
+        self._register_default_skills()
+
+    def _register_default_skills(self) -> None:
+        """Register built-in mathematical skills."""
+        # 1. Exact Algebra & Calculus Skill
+        self.register(
+            Skill(
+                name="algebra_calculus",
+                display_name="代数与微积分符号核算技能",
+                category="symbolic_math",
+                description="使用 SymPy 进行精确代数运算、因式分解、方程求解、导数积分与顶点/零点计算。",
+                tools=[sympy_calculate],
+                prompt_guidance=(
+                    "- **代数求解自验**：涉及二次函数零点、极值点、因式分解、方程求解时，调用 `sympy_calculate` 进行精确求解。\n"
+                    "  示例：`sympy_calculate(expression='solve(x**2 - 4*x + 3, x)')` 或 `sympy_calculate(expression='vx = -b/(2*a); vy = c - b**2/(4*a); ...')`。"
+                ),
+            )
+        )
+
+        # 2. Math Visualization & Plotting Skill
+        self.register(
+            Skill(
+                name="math_visualization",
+                display_name="函数与几何图像可视化技能",
+                category="visualization",
+                description="自动绘制高质量函数曲线、几何示意图并上传至 MinIO 对象存储生成直链 URL。",
+                tools=[plot_math_function],
+                prompt_guidance=(
+                    "- **数形结合直观呈现**：讲解二次函数、抛物线、三角函数或几何图形时，调用 `plot_math_function` 绘制图像。**重要**：`title` 与 `label` 必须使用标准 LaTeX 公式格式（如 `title='$y = x^2 - 4x + 3$'`, `label='$y = x^2 - 4x + 3$'`），工具返回的 Markdown 图片代码 `![...](url)` 必须原样复制嵌入在你的回答正文中呈现给学生！\n"
+                    "  示例：`plot_math_function(expression='x**2 - 4*x + 3', x_min=-1, x_max=5, title='$y = x^2 - 4x + 3$', label='$y = x^2 - 4x + 3$')`。"
+                ),
+            )
+        )
+
+        # 3. Python Computational Sandbox Skill
+        self.register(
+            Skill(
+                name="python_sandbox",
+                display_name="Python 算法与数值仿真沙箱技能",
+                category="sandbox",
+                description="执行多步骤数值计算、数据统计、迭代算法及自定义几何绘图。",
+                tools=[python_sandbox_execute],
+                prompt_guidance=(
+                    "- **复杂算法与仿真**：当需要复杂数值模拟、统计分析或多步 Python 几何建模时调用 `python_sandbox_execute`。"
+                ),
+            )
+        )
+
+        # 4. Student Intent Clarification Skill
+        self.register(
+            Skill(
+                name="student_clarification",
+                display_name="学情诊断与启发式追问技能",
+                category="pedagogy",
+                description="在学生问题存在重大歧义或缺失关键约束条件时，向学生提出启发式澄清。",
+                tools=[ask_human],
+                prompt_guidance=(
+                    "- **学情启发**：仅在学生题目信息严重缺失时调用 `ask_human` 进行针对性确认。"
+                ),
+            )
+        )
+
+    def register(self, skill: Skill) -> None:
+        """Register a new domain skill."""
+        self._skills[skill.name] = skill
+        logger.info("skill_registered", skill_name=skill.name, category=skill.category)
+
+    def register_dynamic_skill(
+        self,
+        name: str,
+        display_name: str,
+        category: str,
+        description: str,
+        prompt_guidance: str,
+        tools: Optional[List[BaseTool]] = None,
+        target_nodes: Optional[List[str]] = None,
+    ) -> Skill:
+        """Dynamically create and register a new evolved mathematical skill.
+
+        Args:
+            name: Technical identifier for the skill.
+            display_name: Human-friendly Chinese name.
+            category: Domain classification (e.g. geometry, algebra, statistics).
+            description: Summary of skill capability.
+            prompt_guidance: Specific prompt instructions for tutor nodes.
+            tools: Optional tool instances associated with this skill.
+            target_nodes: Optional list of nodes to map this skill to. Defaults to all nodes.
+
+        Returns:
+            Skill: The created and registered Skill instance.
+        """
+        skill = Skill(
+            name=name,
+            display_name=display_name,
+            category=category,
+            description=description,
+            tools=tools or [],
+            prompt_guidance=prompt_guidance,
+        )
+        self.register(skill)
+
+        nodes = target_nodes or ["explain", "verify", "practice", "chat"]
+        for node in nodes:
+            if node in self._node_skill_mappings and name not in self._node_skill_mappings[node]:
+                self._node_skill_mappings[node].append(name)
+
+        logger.info("dynamic_skill_registered_to_nodes", skill_name=name, nodes=nodes)
+        return skill
+
+    def unregister_skill(self, name: str) -> bool:
+        """Unregister a skill by name."""
+        if name in self._skills:
+            del self._skills[name]
+            for node_skills in self._node_skill_mappings.values():
+                if name in node_skills:
+                    node_skills.remove(name)
+            logger.info("skill_unregistered", skill_name=name)
+            return True
+        return False
+
+    def get_skill(self, name: str) -> Optional[Skill]:
+        """Retrieve a registered skill by name."""
+        return self._skills.get(name)
+
+    def get_all_skills(self) -> List[Skill]:
+        """Return all registered skills."""
+        return list(self._skills.values())
+
+    def get_tools_for_node(self, node: str) -> List[BaseTool]:
+        """Get the combined list of tools for a specific LangGraph tutoring node."""
+        skill_names = self._node_skill_mappings.get(node, ["algebra_calculus", "math_visualization", "python_sandbox"])
+        tools: List[BaseTool] = []
+        for name in skill_names:
+            skill = self._skills.get(name)
+            if skill:
+                for tool in skill.tools:
+                    if tool not in tools:
+                        tools.append(tool)
+        return tools
+
+    def get_prompt_guide_for_node(self, node: str) -> str:
+        """Generate formatted skill guidelines to inject into system prompts."""
+        skill_names = self._node_skill_mappings.get(node, [])
+        guidance_lines = []
+        for name in skill_names:
+            skill = self._skills.get(name)
+            if skill and skill.prompt_guidance:
+                guidance_lines.append(skill.prompt_guidance)
+        return "\n".join(guidance_lines)
+
+
+skill_registry = SkillRegistry()

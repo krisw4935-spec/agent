@@ -1,0 +1,234 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    platform: linux/amd64
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+    networks:
+      - monitoring
+
+  # Valkey (Redis-compatible) cache — optional, set VALKEY_HOST=valkey in your .env to enable
+  valkey:
+    image: valkey/valkey:8.1.6-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - valkey-data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+    networks:
+      - monitoring
+
+  # Single API service with dynamic environment
+  app:
+    build:
+      context: .
+      args:
+        APP_ENV: ${APP_ENV:-development}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./app:/app/app
+      - ./logs:/app/logs
+    env_file:
+      - .env.${APP_ENV:-development}
+    environment:
+      - APP_ENV=${APP_ENV:-development}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:?JWT_SECRET_KEY must be set to a strong random value}
+      # The .env files say localhost, which is correct for `make dev` but unreachable
+      # from inside the container. Point at the compose service instead.
+      - POSTGRES_HOST=db
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: on-failure
+    networks:
+      - monitoring
+
+
+  # ---------------------------------------------------------------------------
+  # Langfuse Self-Hosted Cluster (v3)
+  # ---------------------------------------------------------------------------
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3-alpine
+    environment:
+      - CLICKHOUSE_DB=default
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-clickhouse}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-clickhouse}
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:8123/ping || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: always
+    networks:
+      - monitoring
+
+  minio:
+    image: minio/minio:latest
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minio}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-miniosecret}
+    ports:
+      - "9001:9000"
+      - "9002:9001"
+    volumes:
+      - minio-data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+    networks:
+      - monitoring
+
+  minio-create-bucket:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      until /usr/bin/mc alias set myminio http://minio:9000 ${MINIO_ROOT_USER:-minio} ${MINIO_ROOT_PASSWORD:-miniosecret}; do
+        echo 'Waiting for MinIO...';
+        sleep 2;
+      done;
+      /usr/bin/mc mb --ignore-existing myminio/langfuse;
+      exit 0;
+      "
+    networks:
+      - monitoring
+
+  langfuse-web:
+    image: langfuse/langfuse:3
+    ports:
+      - "${LANGFUSE_PORT:-3001}:3000"
+    environment:
+      - HOSTNAME=0.0.0.0
+      - PORT=3000
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?schema=langfuse
+      - DIRECT_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?schema=langfuse
+      - NEXTAUTH_URL=${LANGFUSE_NEXTAUTH_URL:-http://localhost:${LANGFUSE_PORT:-3001}}
+      - NEXTAUTH_SECRET=${LANGFUSE_NEXTAUTH_SECRET:-changethisinproduction_secret_key_32}
+      - SALT=${LANGFUSE_SALT:-changethisinproduction_salt_key_16}
+      - ENCRYPTION_KEY=${LANGFUSE_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
+      - TELEMETRY_ENABLED=${LANGFUSE_TELEMETRY_ENABLED:-false}
+      - REDIS_URL=redis://valkey:6379
+      - REDIS_HOST=valkey
+      - REDIS_PORT=6379
+      - CLICKHOUSE_MIGRATION_URL=clickhouse://clickhouse:9000
+      - CLICKHOUSE_URL=http://clickhouse:8123
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-clickhouse}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-clickhouse}
+      - CLICKHOUSE_CLUSTER_ENABLED=false
+      - LANGFUSE_S3_EVENT_UPLOAD_BUCKET=langfuse
+      - LANGFUSE_S3_EVENT_UPLOAD_REGION=auto
+      - LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID=${MINIO_ROOT_USER:-minio}
+      - LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY=${MINIO_ROOT_PASSWORD:-miniosecret}
+      - LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT=http://minio:9000
+      - LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE=true
+    depends_on:
+      db:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-create-bucket:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "node -e 'require(\"http\").get(\"http://127.0.0.1:3000/api/public/health\", (res) => process.exit(res.statusCode === 200 ? 0 : 1))'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: always
+    networks:
+      - monitoring
+
+  langfuse-worker:
+    image: langfuse/langfuse-worker:3
+    environment:
+      - HOSTNAME=0.0.0.0
+      - PORT=3030
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?schema=langfuse
+      - DIRECT_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?schema=langfuse
+      - NEXTAUTH_URL=${LANGFUSE_NEXTAUTH_URL:-http://localhost:${LANGFUSE_PORT:-3001}}
+      - NEXTAUTH_SECRET=${LANGFUSE_NEXTAUTH_SECRET:-changethisinproduction_secret_key_32}
+      - SALT=${LANGFUSE_SALT:-changethisinproduction_salt_key_16}
+      - ENCRYPTION_KEY=${LANGFUSE_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
+      - TELEMETRY_ENABLED=${LANGFUSE_TELEMETRY_ENABLED:-false}
+      - REDIS_URL=redis://valkey:6379
+      - REDIS_HOST=valkey
+      - REDIS_PORT=6379
+      - REDIS_CONNECTION_STRING=redis://valkey:6379
+      - CLICKHOUSE_MIGRATION_URL=clickhouse://clickhouse:9000
+      - CLICKHOUSE_URL=http://clickhouse:8123
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-clickhouse}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-clickhouse}
+      - CLICKHOUSE_CLUSTER_ENABLED=false
+      - LANGFUSE_S3_EVENT_UPLOAD_BUCKET=langfuse
+      - LANGFUSE_S3_EVENT_UPLOAD_REGION=auto
+      - LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID=${MINIO_ROOT_USER:-minio}
+      - LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY=${MINIO_ROOT_PASSWORD:-miniosecret}
+      - LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT=http://minio:9000
+      - LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE=true
+    depends_on:
+      db:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-create-bucket:
+        condition: service_completed_successfully
+      langfuse-web:
+        condition: service_healthy
+    restart: always
+    networks:
+      - monitoring
+
+
+networks:
+  monitoring:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  valkey-data:
+  clickhouse-data:
+  minio-data:
