@@ -16,18 +16,11 @@ export function App() {
   }, [])
 
   return (
-    <Layout className="app-shell">
-      <Sider
-        style={{
-          width: 280,
-          flexShrink: 0,
-          background: 'var(--semi-color-bg-0)',
-          borderRight: '1px solid var(--semi-color-border)',
-        }}
-      >
+    <Layout className="app-shell h-screen h-dvh overflow-hidden bg-surface">
+      <Sider className="w-280px shrink-0 bg-surface border-r border-default">
         <Sidebar />
       </Sider>
-      <Content className="chat-main">
+      <Content className="chat-main flex flex-col h-full min-w-0 bg-surface">
         <ChatPanel />
       </Content>
       <ImageModal />

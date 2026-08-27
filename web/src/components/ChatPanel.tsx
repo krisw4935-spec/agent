@@ -8,7 +8,7 @@ import {
   TextArea,
   Typography,
 } from '@douyinfe/semi-ui-19'
-import { IconSend, IconUser } from '@douyinfe/semi-icons'
+import clsx from 'clsx'
 import { QUICK_PROMPTS } from '@/lib/format'
 import { useAuthStore } from '@/store/auth-store'
 import { useChatStore } from '@/store/chat-store'
@@ -22,6 +22,7 @@ export function ChatPanel() {
   const sessionTitle = useAuthStore(state => state.sessionTitle)
   const busy = useChatStore(state => state.busy)
   const chatError = useChatStore(state => state.chatError)
+  const awaitingHuman = useChatStore(state => state.awaitingHuman)
   const sendMessage = useChatStore(state => state.sendMessage)
   const userToken = useAuthStore(state => state.userToken)
   const authModalOpen = useAuthStore(state => state.authModalOpen)
@@ -39,11 +40,11 @@ export function ChatPanel() {
 
   if (booting) {
     return (
-      <section className="boot-panel">
+      <section className="flex flex-col items-center justify-center h-full gap-3">
         <Spin size="large" />
-        <Title heading={4} style={{ marginTop: 16, marginBottom: 0 }}>正在初始化 Math Teacher...</Title>
+        <Title heading={5} className="!mt-4 !mb-0">正在初始化 Math Teacher...</Title>
         <Text type="tertiary">连接知识图谱、向量记忆与 E2B 代码沙箱</Text>
-        {bootError ? <Banner type="danger" description={bootError} closeIcon={null} style={{ marginTop: 16, maxWidth: 480 }} /> : null}
+        {bootError ? <Banner type="danger" description={bootError} closeIcon={null} className="!mt-4 max-w-480px" /> : null}
       </section>
     )
   }
@@ -52,134 +53,157 @@ export function ChatPanel() {
     <>
       {!(isGuest && authModalOpen)
         ? (
-            <header className="chat-header">
-              <div className="chat-header-main">
-                <Title heading={4} style={{ margin: 0 }}>{sessionTitle}</Title>
-                <Text type="tertiary" size="small">
-                  支持 LaTeX 公式、Python 代码求解、以及自动函数绘图
-                </Text>
-              </div>
-              <Tag color="green" type="light" size="large">Agent 就绪</Tag>
-            </header>
-          )
+          <header className="flex-between gap-4 px-6 py-4 border-b border-default bg-surface">
+            <div className="min-w-0">
+              <Title heading={5} className="!m-0">{sessionTitle}</Title>
+              <Text type="tertiary" size="small">
+                支持 LaTeX 公式、Python 代码求解、以及自动函数绘图
+              </Text>
+            </div>
+          </header>
+        )
         : null}
 
       {isGuest
         ? authModalOpen
           ? null
           : (
-              <section className="auth-gate-panel">
-                <Empty
-                  image={<IconUser size="extra-large" style={{ color: 'rgb(var(--brand-primary))' }} />}
-                  title="登录后开始数学辅导"
-                  description="登录后可保存历史会话、同步学习记录，并使用完整 Agent 能力。"
+            <section className="flex-1 min-h-0 flex items-start justify-center pt-10 px-6 pb-6 bg-surface [&_.semi-empty]:m-0 [&_.semi-empty]:p-0 [&_.semi-empty-content]:mt-3">
+              <Empty
+                image={<span className="i-lucide-user w-[64px] h-[64px] text-brand" aria-hidden="true" />}
+                title="登录后开始数学辅导"
+                description="登录后可保存历史会话、同步学习记录，并使用完整 Agent 能力。"
+              >
+                <Button
+                  theme="solid"
+                  type="primary"
+                  size="large"
+                  onClick={() => setAuthModalOpen(true)}
                 >
-                  <Button
-                    theme="solid"
-                    type="primary"
-                    size="large"
-                    onClick={() => setAuthModalOpen(true)}
-                  >
-                    立即登录
-                  </Button>
-                </Empty>
-              </section>
-            )
+                  立即登录
+                </Button>
+              </Empty>
+            </section>
+          )
         : (
-            <MessageFeed />
-          )}
+          <MessageFeed />
+        )}
 
       {!isGuest || !authModalOpen
         ? (
-            <div className={`composer-area ${isGuest ? 'is-disabled' : ''}`}>
-        <div className="composer-inner">
-          <div className="prompt-row">
-            {QUICK_PROMPTS.map(item => (
-              <Tag
-                key={item.label}
-                color="green"
-                type="ghost"
-                size="large"
-                style={{ cursor: isGuest || busy ? 'not-allowed' : 'pointer', opacity: isGuest || busy ? 0.55 : 1 }}
-                onClick={() => {
-                  if (isGuest) {
-                    setAuthModalOpen(true)
-                    return
+          <div className={clsx(
+            'px-6 pt-4 pb-6 border-t border-default bg-surface',
+            isGuest && 'opacity-72 pointer-events-none',
+          )}
+          >
+            <div className="max-w-860px mx-auto">
+              {awaitingHuman && !isGuest
+                ? (
+                  <Banner
+                    type="warning"
+                    closeIcon={null}
+                    description="当前流程等待你的确认回复，请在下方输入框直接回答上方问题。"
+                    className="!mb-3"
+                  />
+                )
+                : null}
+
+              <div className="flex flex-wrap gap-2 mb-3">
+                {QUICK_PROMPTS.map(item => (
+                  <Tag
+                    key={item.label}
+                    color="green"
+                    type="ghost"
+                    size="large"
+                    className={clsx(
+                      isGuest || busy ? 'cursor-not-allowed opacity-55' : 'cursor-pointer opacity-100',
+                    )}
+                    onClick={() => {
+                      if (isGuest) {
+                        setAuthModalOpen(true)
+                        return
+                      }
+                      if (!busy)
+                        void sendMessage(item.prompt)
+                    }}
+                  >
+                    {item.label}
+                  </Tag>
+                ))}
+              </div>
+
+              <div className="composer-row flex gap-3 items-end">
+                <TextArea
+                  value={input}
+                  onChange={setInput}
+                  autosize={{ minRows: 2, maxRows: 6 }}
+                  placeholder={
+                    isGuest
+                      ? '请先登录后再输入数学问题...'
+                      : awaitingHuman
+                        ? '回复上方确认问题…'
+                        : '输入数学问题（如：讲解三角函数并画出图像、求导、解方程）...'
                   }
-                  if (!busy)
-                    void sendMessage(item.prompt)
-                }}
-              >
-                {item.label}
-              </Tag>
-            ))}
-          </div>
+                  maxCount={3000}
+                  maxLength={3000}
+                  disabled={busy || isGuest}
+                  onEnterPress={(event) => {
+                    if (!event.shiftKey) {
+                      event.preventDefault?.()
+                      handleSubmit()
+                    }
+                  }}
+                />
+                <Button
+                  theme="solid"
+                  type="primary"
+                  icon={<span className="i-lucide-send w-[16px] h-[16px]" aria-hidden="true" />}
+                  loading={busy}
+                  disabled={busy || isGuest || !input.trim()}
+                  onClick={handleSubmit}
+                  aria-label="发送消息"
+                >
+                  {busy ? '发送中' : awaitingHuman ? '确认回复' : '发送'}
+                </Button>
+              </div>
 
-          <div className="composer-row">
-            <TextArea
-              value={input}
-              onChange={setInput}
-              autosize={{ minRows: 2, maxRows: 6 }}
-              placeholder={isGuest ? '请先登录后再输入数学问题...' : '输入数学问题（如：讲解三角函数并画出图像、求导、解方程）...'}
-              maxCount={3000}
-              maxLength={3000}
-              disabled={busy || isGuest}
-              onEnterPress={(event) => {
-                if (!event.shiftKey) {
-                  event.preventDefault?.()
-                  handleSubmit()
-                }
-              }}
-            />
-            <Button
-              theme="solid"
-              type="primary"
-              icon={<IconSend />}
-              loading={busy}
-              disabled={busy || isGuest || !input.trim()}
-              onClick={handleSubmit}
-              aria-label="发送消息"
-            >
-              {busy ? '发送中' : '发送'}
-            </Button>
-          </div>
-
-          {chatError
-            ? (
-                <Banner
-                  type="danger"
-                  closeIcon={null}
-                  description={(
-                    <span>
-                      {chatError}
-                      {isGuest
-                        ? (
+              {chatError
+                ? (
+                  <Banner
+                    type="danger"
+                    closeIcon={null}
+                    description={(
+                      <span>
+                        {chatError}
+                        {isGuest
+                          ? (
                             <>
                               {' '}
-                              <Button theme="borderless" type="primary" onClick={() => setAuthModalOpen(true)} style={{ padding: 0, height: 'auto' }}>
+                              <Button theme="borderless" type="primary" onClick={() => setAuthModalOpen(true)} className="!p-0 !h-auto">
                                 去登录
                               </Button>
                             </>
                           )
-                        : null}
-                    </span>
-                  )}
-                  style={{ marginTop: 12 }}
-                />
-              )
-            : null}
+                          : null}
+                      </span>
+                    )}
+                    className="!mt-3"
+                  />
+                )
+                : null}
 
-          {isGuest && !authModalOpen
-            ? (
-                <Text type="tertiary" size="small" style={{ display: 'block', marginTop: 12 }}>
-                  登录后即可输入数学问题并开始对话。
-                </Text>
-              )
-            : null}
-        </div>
+              {isGuest && !authModalOpen
+                ? (
+                  <Text type="tertiary" size="small" className="block mt-3">
+                    登录后即可输入数学问题并开始对话。
+                  </Text>
+                )
+                : null}
             </div>
-          )
+          </div>
+        )
         : null}
     </>
   )
 }
+

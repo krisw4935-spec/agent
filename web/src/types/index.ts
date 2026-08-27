@@ -49,6 +49,8 @@ export interface ChatMessage {
   thinking?: string
   tool_calls?: ToolCall[]
   segments?: MessageSegment[]
+  interrupted?: boolean
+  interrupt_question?: string
 }
 
 export interface StreamPayload {
@@ -58,6 +60,9 @@ export interface StreamPayload {
   tool_name?: string
   tool_args?: string
   tool_output?: string
+  done?: boolean
+  interrupted?: boolean
+  interrupt_question?: string
 }
 
 export interface StreamSegment {

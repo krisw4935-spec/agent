@@ -1,6 +1,9 @@
 import { Collapse, Spin, Tag, Typography } from '@douyinfe/semi-ui-19'
+import { Streamdown } from 'streamdown'
 import { getFriendlyToolName, getToolInputLabel, getToolOutputLabel } from '@/lib/format'
-import { extractThinkingFromContent, parseContent } from '@/lib/markdown'
+import { extractThinkingFromContent } from '@/lib/markdown'
+import { katexStreamdownComponents } from '@/lib/katex-streamdown'
+import { streamdownPlugins } from '@/lib/streamdown'
 import type { MessageSegment, ToolCall } from '@/types'
 
 const { Text } = Typography
@@ -23,7 +26,7 @@ function InlineSpin() {
 
 function StreamingPlaceholder() {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
+    <div className="flex items-center gap-2 py-1">
       <InlineSpin />
       <Text type="secondary">正在分析题目意图与解题策略...</Text>
       <Tag size="small" color="blue">分析中</Tag>
@@ -33,10 +36,10 @@ function StreamingPlaceholder() {
 
 function ThinkingBlock({ content, completed, elapsed }: { content: string, completed: boolean, elapsed?: number }) {
   return (
-    <Collapse defaultActiveKey={completed ? [] : ['thinking']} keepDOM style={{ marginBottom: 8 }}>
+    <Collapse defaultActiveKey={completed ? [] : ['thinking']} keepDOM className="assistant-collapse !mb-2">
       <Collapse.Panel
         header={(
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <div className="flex items-center gap-2 flex-wrap">
             {!completed ? <InlineSpin /> : null}
             <Text>深度思考与推理过程{elapsed ? ` (${elapsed}s)` : ''}</Text>
             <Tag size="small" color={completed ? 'green' : 'blue'}>
@@ -70,10 +73,10 @@ function ToolCallBlock({
   const panelKey = `tool-${stepNumber}`
 
   return (
-    <Collapse defaultActiveKey={completed ? [] : [panelKey]} keepDOM style={{ marginBottom: 8 }}>
+    <Collapse defaultActiveKey={completed ? [] : [panelKey]} keepDOM className="assistant-collapse !mb-2">
       <Collapse.Panel
         header={(
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <div className="flex items-center gap-2 flex-wrap">
             <Tag size="small" color="grey">{`步骤 ${stepNumber}`}</Tag>
             {!completed ? <InlineSpin /> : null}
             <Text>
@@ -88,37 +91,42 @@ function ToolCallBlock({
       >
         {hasDetails
           ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {toolArgs
-                  ? (
-                      <div>
-                        <Text type="secondary" size="small" strong>{getToolInputLabel(toolName)}</Text>
-                        <pre className="tool-output">{toolArgs}</pre>
-                      </div>
-                    )
-                  : null}
-                {toolOutput
-                  ? (
-                      <div>
-                        <Text type="secondary" size="small" strong>{getToolOutputLabel(toolName)}</Text>
-                        <pre className="tool-output">{toolOutput}</pre>
-                      </div>
-                    )
-                  : null}
-              </div>
-            )
+            <div className="flex flex-col gap-3">
+              {toolArgs
+                ? (
+                  <div>
+                    <Text type="secondary" size="small" strong>{getToolInputLabel(toolName)}</Text>
+                    <pre className="tool-output">{toolArgs}</pre>
+                  </div>
+                )
+                : null}
+              {toolOutput
+                ? (
+                  <div>
+                    <Text type="secondary" size="small" strong>{getToolOutputLabel(toolName)}</Text>
+                    <pre className="tool-output">{toolOutput}</pre>
+                  </div>
+                )
+                : null}
+            </div>
+          )
           : null}
       </Collapse.Panel>
     </Collapse>
   )
 }
 
-function TextBlock({ content }: { content: string }) {
+function TextBlock({ content, streaming = false }: { content: string, streaming?: boolean }) {
   return (
-    <div
+    <Streamdown
       className="markdown-body"
-      dangerouslySetInnerHTML={{ __html: parseContent(content) }}
-    />
+      plugins={streamdownPlugins}
+      components={katexStreamdownComponents}
+      isAnimating={streaming}
+      mode={streaming ? 'streaming' : 'static'}
+    >
+      {content}
+    </Streamdown>
   )
 }
 
@@ -135,7 +143,7 @@ export function AssistantContent({
   if (segments.length > 0) {
     let toolCount = 0
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div className="flex flex-col gap-2">
         {segments.map((segment, index) => {
           if (segment.type === 'thinking' && segment.content) {
             return (
@@ -161,8 +169,15 @@ export function AssistantContent({
             )
           }
 
-          if (segment.type === 'text' && segment.content)
-            return <TextBlock key={`text-${index}`} content={segment.content} />
+          if (segment.type === 'text' && segment.content) {
+            return (
+              <TextBlock
+                key={`text-${index}`}
+                content={segment.content}
+                streaming={streaming && index === segments.length - 1}
+              />
+            )
+          }
 
           return null
         })}
@@ -175,7 +190,7 @@ export function AssistantContent({
   const cleanContent = extracted.content || content
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+    <div className="flex flex-col gap-2">
       {cleanThinking
         ? <ThinkingBlock content={cleanThinking} completed={!streaming} />
         : null}
@@ -189,7 +204,7 @@ export function AssistantContent({
           stepNumber={index + 1}
         />
       ))}
-      {cleanContent ? <TextBlock content={cleanContent} /> : null}
+      {cleanContent ? <TextBlock content={cleanContent} streaming={streaming} /> : null}
       {!cleanContent && !cleanThinking && toolCalls.length === 0 && streaming
         ? <StreamingPlaceholder />
         : null}

@@ -8,6 +8,7 @@ interface ChatState {
   messages: ChatMessage[]
   busy: boolean
   chatError: string | null
+  awaitingHuman: boolean
   setChatError: (message: string | null) => void
   setMessages: (messages: ChatMessage[]) => void
   appendMessage: (message: ChatMessage) => void
@@ -197,13 +198,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
   busy: false,
   chatError: null,
+  awaitingHuman: false,
 
   setChatError(message) {
     set({ chatError: message })
   },
 
   setMessages(messages) {
-    set({ messages })
+    const lastMsg = messages.at(-1)
+    set({
+      messages,
+      awaitingHuman: Boolean(lastMsg?.interrupted),
+    })
   },
 
   appendMessage(message) {
@@ -223,18 +229,26 @@ export const useChatStore = create<ChatState>((set, get) => ({
   async loadSessionMessages() {
     const sessionToken = useAuthStore.getState().sessionToken
     if (!sessionToken) {
-      set({ messages: [{ role: 'assistant', content: DEFAULT_GREETING }] })
+      set({ messages: [{ role: 'assistant', content: DEFAULT_GREETING }], awaitingHuman: false })
       return
     }
 
     try {
       const data = await fetchMessages(sessionToken)
       const msgs = data.messages || []
-      set({ messages: msgs.length ? msgs : [{ role: 'assistant', content: DEFAULT_GREETING }] })
+      const lastMsg = msgs.at(-1)
+      const isAwaiting = Boolean(lastMsg?.interrupted)
+      set({
+        messages: msgs.length ? msgs : [{ role: 'assistant', content: DEFAULT_GREETING }],
+        awaitingHuman: isAwaiting,
+      })
     }
     catch (error) {
       const message = error instanceof Error ? error.message : '加载历史记录失败'
-      set({ messages: [{ role: 'assistant', content: `⚠️ 加载历史记录失败: ${message}` }] })
+      set({
+        messages: [{ role: 'assistant', content: `⚠️ 加载历史记录失败: ${message}` }],
+        awaitingHuman: false,
+      })
     }
   },
 
@@ -249,6 +263,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({
       messages: [{ role: 'assistant', content: DEFAULT_GREETING }],
       chatError: null,
+      awaitingHuman: false,
     })
   },
 
@@ -264,22 +279,26 @@ export const useChatStore = create<ChatState>((set, get) => ({
       return
     }
 
-    set({ busy: true, chatError: null })
+    set({ busy: true, chatError: null, awaitingHuman: false })
     get().appendMessage({ role: 'user', content })
     get().appendMessage({ role: 'assistant', content: '', segments: [] })
 
     const streamSegments: StreamSegment[] = []
     const insideThinkRef = { current: false }
     let hasReceivedAnyToken = false
+    let interrupted = false
+    let interruptQuestion = ''
 
     const updateStreamingAssistant = () => {
       const result = segmentsToMessage(streamSegments)
       get().replaceLastAssistant({
         role: 'assistant',
-        content: result.content,
+        content: interrupted ? (interruptQuestion || result.content) : result.content,
         thinking: result.thinking,
         tool_calls: result.tool_calls,
         segments: result.segments,
+        interrupted,
+        interrupt_question: interruptQuestion,
       })
     }
 
@@ -298,6 +317,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       for await (const payload of streamChat(sessionToken, content)) {
         if (payload.thinking || payload.content)
           hasReceivedAnyToken = true
+        if (payload.interrupted) {
+          interrupted = true
+          interruptQuestion = payload.interrupt_question || payload.content || interruptQuestion
+        }
         applyStreamPayload(streamSegments, payload, insideThinkRef)
         updateStreamingAssistant()
       }
@@ -306,13 +329,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
       updateStreamingAssistant()
 
       const result = segmentsToMessage(streamSegments)
-      if (!hasReceivedAnyToken && !result.content && !result.thinking) {
+      if (!hasReceivedAnyToken && !result.content && !result.thinking && !interrupted) {
         const data = await sendChat(sessionToken, [{ role: 'user', content }])
         const assistantMessages = (data.messages || []).filter(item => item.role === 'assistant')
         const lastMsg = assistantMessages.at(-1)
-        if (lastMsg)
+        if (lastMsg) {
+          interrupted = Boolean(lastMsg.interrupted)
+          interruptQuestion = lastMsg.interrupt_question || lastMsg.content || ''
           get().replaceLastAssistant(lastMsg)
+        }
       }
+
+      if (interrupted)
+        set({ awaitingHuman: true })
 
       window.setTimeout(() => {
         void auth.loadSessions()
@@ -321,7 +350,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     catch (error) {
       const message = error instanceof Error ? error.message : '发送失败'
       get().replaceLastAssistant({ role: 'assistant', content: `❌ **出错了**: ${message}` })
-      set({ chatError: message })
+      set({ chatError: message, awaitingHuman: false })
     }
     finally {
       set({ busy: false })

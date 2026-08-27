@@ -235,10 +235,5 @@ def process_graph_messages(messages: list[Any]) -> list[Message]:
                     if tc_id:
                         tool_call_segments_by_id[tc_id] = seg
 
-            imgs = re.findall(r"!\[[^\]]*\]\([^\)]+\)", tool_output)
-            if imgs:
-                tool_img_content = "\n\n" + "\n\n".join(imgs) + "\n\n"
-                turn_segments.append(MessageSegment(type="text", content=tool_img_content))
-
     flush_assistant_turn()
     return result

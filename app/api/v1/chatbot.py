@@ -116,6 +116,7 @@ async def chat_stream(
             """
             try:
                 with llm_stream_duration_seconds.labels(model=agent.llm_service.get_llm().get_name()).time():
+                    was_interrupted = False
                     async for event in agent.get_stream_response(
                         chat_request.messages, session.id, user_id=str(session.user_id), username=session.username
                     ):
@@ -124,6 +125,8 @@ async def chat_stream(
                             break
 
                         if isinstance(event, dict):
+                            if event.get("interrupted"):
+                                was_interrupted = True
                             response = StreamResponse(
                                 content=event.get("content", ""),
                                 thinking=event.get("thinking", ""),
@@ -131,6 +134,8 @@ async def chat_stream(
                                 tool_name=event.get("tool_name", ""),
                                 tool_args=event.get("tool_args", ""),
                                 tool_output=event.get("tool_output", ""),
+                                interrupted=bool(event.get("interrupted", False)),
+                                interrupt_question=str(event.get("interrupt_question", "") or ""),
                                 done=False,
                             )
                         else:
@@ -139,7 +144,11 @@ async def chat_stream(
 
                 # Send final message indicating completion if still connected
                 if not await request.is_disconnected():
-                    final_response = StreamResponse(content="", done=True)
+                    final_response = StreamResponse(
+                        content="",
+                        done=True,
+                        interrupted=was_interrupted,
+                    )
                     yield f"data: {json.dumps(final_response.model_dump(mode='json'))}\n\n"
 
             except asyncio.CancelledError:

@@ -36,17 +36,10 @@ install:
 # Server
 # ---------------------------------------------------------------------------
 dev:
-	@if [ ! -d web/node_modules ]; then \
-		echo "Installing frontend dependencies..."; \
-		cd web && pnpm install; \
-	fi
-	@bash -c '\
-		trap "kill 0" EXIT INT TERM; \
-		printf "\n  Backend API:  http://localhost:8000\n  Frontend UI:  http://localhost:5173  (open this)\n\n"; \
-		source scripts/set_env.sh $(ENV) && uv run uvicorn app.main:app --reload --port 8000 & \
-		cd web && pnpm exec rsbuild dev & \
-		wait \
-	'
+	@bash scripts/dev.sh $(ENV)
+
+dev-stop:
+	@bash scripts/dev_stop.sh
 
 dev-api:
 	@$(call run_with_env,uv run uvicorn app.main:app --reload --port 8000)
@@ -220,6 +213,7 @@ help:
 	@echo ""
 	@echo "Server:"
 	@echo "  dev                  Start backend (8000) + frontend (5173); open frontend URL"
+	@echo "  dev-stop             Stop local dev servers on ports 8000 and 5173"
 	@echo "  dev-api              Backend only with hot reload (port 8000)"
 	@echo "  staging              Staging server"
 	@echo "  prod                 Production server"
@@ -275,7 +269,7 @@ help:
 	@echo "Misc:"
 	@echo "  clean                Remove .venv, __pycache__, .pytest_cache"
 
-.PHONY: install dev dev-api staging prod _serve \
+.PHONY: install dev dev-stop dev-api staging prod _serve \
         frontend-install frontend-dev frontend-build frontend-typecheck frontend-lint \
         migrate migration migrate-downgrade migrate-history \
         eval eval-quick eval-no-report eval-regression eval-regression-agent eval-regression-cases \

@@ -18,6 +18,7 @@ wheels/
 
 # Misc
 *.ipynb
+.dev/
 node_modules/
 web/node_modules/
 web/dist/

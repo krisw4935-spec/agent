@@ -18,7 +18,7 @@ export function MessageFeed() {
   return (
     <div
       ref={feedRef}
-      className="message-scroll"
+      className="flex-1 overflow-y-auto p-6"
       aria-live="polite"
       onClick={(event) => {
         const target = event.target
@@ -26,7 +26,7 @@ export function MessageFeed() {
           openImage(target.src)
       }}
     >
-      <div className="message-list">
+      <div className="flex flex-col gap-5 max-w-860px mx-auto">
         {messages.map((message, index) => (
           <MessageRow
             key={`${message.role}-${index}-${message.content.slice(0, 24)}`}

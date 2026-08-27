@@ -23,7 +23,7 @@ export function ImageModal() {
             <img
               src={openSrc}
               alt="预览大图"
-              style={{ maxWidth: '90vw', maxHeight: '85vh', display: 'block', borderRadius: 8 }}
+              className="max-w-90vw max-h-85vh block rounded-2"
             />
           )
         : null}

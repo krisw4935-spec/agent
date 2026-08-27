@@ -8,7 +8,7 @@ import {
   Tag,
   Typography,
 } from '@douyinfe/semi-ui-19'
-import { IconBookStroked, IconDeleteStroked, IconExit, IconLock, IconPlus, IconComment } from '@douyinfe/semi-icons'
+import clsx from 'clsx'
 import { fetchMessages } from '@/api/chatbot'
 import { formatRelativeTime } from '@/lib/format'
 import { useAuthStore } from '@/store/auth-store'
@@ -23,7 +23,7 @@ export function Sidebar() {
   const sessions = useAuthStore(state => state.sessions)
   const sessionMeta = useMemo(() => {
     const prefix = user ? `用户: ${user.username || user.email}` : '游客会话'
-    const sid = sessionId ? `\nID: ${sessionId.slice(0, 8)}...` : ''
+    const sid = sessionId ? `\nSESSION ID: ${sessionId}` : ''
     return `${prefix}${sid}`
   }, [sessionId, user])
 
@@ -71,29 +71,26 @@ export function Sidebar() {
   }, [deleteSession])
 
   return (
-    <div className="sidebar-inner" aria-label="会话侧栏">
+    <div className="flex flex-col h-full py-5 px-4 gap-3 overflow-hidden" aria-label="会话侧栏">
       <div>
-        <div className="sidebar-brand">
+        <div className="flex gap-3 items-center">
           <Avatar color="green" size="default" shape="square">
-            <IconBookStroked />
+            <span className="i-lucide-book w-[16px] h-[16px]" aria-hidden="true" />
           </Avatar>
-          <div>
-            <Title heading={5} style={{ margin: 0 }}>Math Teacher</Title>
-            <Tag color="green" size="small" style={{ marginTop: 4 }}>v2.0 · 图文智能体</Tag>
+          <div className="flex flex-col">
+            <div className="text-sm font-bold">Math Teacher</div>
+            <div className="text-xs text-gray-500">v2.0 · 图文智能体</div>
           </div>
         </div>
-        <Paragraph type="tertiary" size="small" style={{ marginTop: 12, marginBottom: 0 }}>
-          数形结合 · 步骤批改 · E2B 代码自验 · 质检审校
-        </Paragraph>
       </div>
 
-      <div className="sidebar-user-card">
+      <div className="p-3 rounded-3 bg-surface border border-default">
         {!userToken || !user
           ? (
-            <div className="sidebar-user-row">
-              <div className="sidebar-user-meta">
-                <Avatar color="grey" size="small">
-                  <IconLock />
+            <div className="flex-between gap-2">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <Avatar color="grey" size="small" className="shrink-0">
+                  <span className="i-lucide-lock w-[14px] h-[14px]" aria-hidden="true" />
                 </Avatar>
                 <Text type="secondary">请先登录</Text>
               </div>
@@ -103,12 +100,12 @@ export function Sidebar() {
             </div>
           )
           : (
-            <div className="sidebar-user-row">
-              <div className="sidebar-user-meta">
-                <Avatar color="green" size="small">
+            <div className="flex-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <Avatar color="green" size="small" className="shrink-0">
                   {(user.username || user.email || '用')[0]?.toUpperCase()}
                 </Avatar>
-                <div style={{ minWidth: 0 }}>
+                <div className="min-w-0">
                   <Text strong ellipsis={{ showTooltip: true }}>{user.username || user.email.split('@')[0]}</Text>
                   <br />
                   <Text type="tertiary" size="small" ellipsis={{ showTooltip: true }}>{user.email}</Text>
@@ -124,7 +121,7 @@ export function Sidebar() {
                   }])
                 }}
               >
-                <Button theme="borderless" type="tertiary" icon={<IconExit />} aria-label="退出登录" />
+                <Button theme="borderless" type="tertiary" icon={<span className="i-lucide-log-out w-[16px] h-[16px]" aria-hidden="true" />} aria-label="退出登录" />
               </Popconfirm>
             </div>
           )}
@@ -134,18 +131,18 @@ export function Sidebar() {
         theme="solid"
         type="primary"
         block
-        icon={<IconPlus />}
+        icon={<span className="i-lucide-plus w-[16px] h-[16px]" aria-hidden="true" />}
         onClick={() => void startNewSession()}
       >
         开启新会话
       </Button>
 
-      <div className="session-list-wrap">
-        <div className="session-list-header">
+      <div className="flex-1 min-h-0 flex flex-col gap-2">
+        <div className="flex-between">
           <Text strong>历史会话</Text>
           <Badge count={sessions.length} type="primary" />
         </div>
-        <div className="session-scroll" role="listbox" aria-label="历史会话列表">
+        <div className="flex-1 overflow-y-auto -mx-1 px-1 [&_.semi-list-item]:transition-[background-color,border-color] [&_.semi-list-item]:duration-150" role="listbox" aria-label="历史会话列表">
           {sessions.length === 0
             ? (
               <Text type="tertiary" size="small">
@@ -162,25 +159,21 @@ export function Sidebar() {
                   const timeStr = formatRelativeTime(session.created_at)
                   return (
                     <List.Item
-                      style={{
-                        padding: '10px 12px',
-                        borderRadius: 10,
-                        marginBottom: 6,
-                        cursor: 'pointer',
-                        background: isActive ? 'rgba(var(--semi-blue-5), 0.1)' : 'transparent',
-                        border: isActive ? '1px solid rgba(var(--semi-blue-5), 0.2)' : '1px solid transparent',
-                      }}
+                      className={clsx(
+                        'px-3 py-2.5 rounded-2.5 mb-1.5 cursor-pointer border border-transparent transition-colors duration-150',
+                        isActive && 'bg-[rgba(var(--semi-blue-5),0.1)] border-[rgba(var(--semi-blue-5),0.2)]',
+                      )}
                       onClick={() => void handleSwitchSession(
                         session.session_id,
                         session.token?.access_token,
                         session.name,
                       )}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', minWidth: 0 }}>
-                        <IconComment style={{ flexShrink: 0, color: 'var(--semi-color-text-2)' }} />
-                        <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="flex items-center gap-2.5 w-full min-w-0">
+                        <span className="i-lucide-message-circle w-[16px] h-[16px] shrink-0 text-[var(--semi-color-text-2)]" aria-hidden="true" />
+                        <div className="flex-1 min-w-0">
                           <Text ellipsis={{ showTooltip: true }}>{title}</Text>
-                          {timeStr ? <Text type="tertiary" size="small">{timeStr}</Text> : null}
+                          {timeStr ? <Text type="tertiary" className="pl-2" size="small">{timeStr}</Text> : null}
                         </div>
                         <Popconfirm
                           title="确定要删除此会话记录吗？"
@@ -190,7 +183,7 @@ export function Sidebar() {
                             theme="borderless"
                             type="tertiary"
                             size="small"
-                            icon={<IconDeleteStroked />}
+                            icon={<span className="i-lucide-trash-2 w-[14px] h-[14px]" aria-hidden="true" />}
                             aria-label="删除会话"
                             onClick={event => event.stopPropagation()}
                           />
@@ -204,17 +197,11 @@ export function Sidebar() {
         </div>
       </div>
 
-      <div className="feature-tags">
-        {['E2B 云端代码沙箱', 'Critic 双智能体审校', 'Matplotlib 图像绘制', 'Mem0 长期学情记忆'].map(item => (
-          <Tag key={item} color="green" type="ghost" size="small">{item}</Tag>
-        ))}
-      </div>
-
-      <div className="sidebar-footer">
-        <Text type="tertiary" size="small" style={{ whiteSpace: 'pre-wrap', fontFamily: 'ui-monospace, monospace' }}>
+      <div className="pt-3 border-t border-default">
+        <Text type="tertiary" size="small" className="whitespace-pre-wrap font-mono w-full block">
           {sessionMeta}
         </Text>
       </div>
-    </div>
+    </div >
   )
 }

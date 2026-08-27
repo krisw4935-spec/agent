@@ -64,6 +64,8 @@ class Message(BaseModel):
         thinking: Thinking or reasoning process of the model.
         tool_calls: List of tool calls executed during this message turn.
         segments: Chronological list of message segments (thinking, text, tool_call).
+        interrupted: Whether the graph is paused waiting for human input.
+        interrupt_question: The question posed when interrupted.
     """
 
     model_config = {"extra": "ignore"}
@@ -75,6 +77,8 @@ class Message(BaseModel):
     segments: List[MessageSegment] = Field(
         default_factory=list, description="Chronological segments of the message"
     )
+    interrupted: bool = Field(default=False, description="Whether the graph is paused waiting for human input")
+    interrupt_question: str = Field(default="", description="The question posed when interrupted")
 
     @field_validator("content")
     @classmethod
@@ -137,6 +141,8 @@ class StreamResponse(BaseResponse):
         status: Current agent state or tool execution status description.
         tool_name: Name of the tool currently being called.
         done: Whether the stream is complete.
+        interrupted: Whether the graph is paused waiting for human input.
+        interrupt_question: The question posed when interrupted.
     """
 
     content: str = Field(default="", description="The content of the current chunk")
@@ -146,6 +152,8 @@ class StreamResponse(BaseResponse):
     tool_args: str = Field(default="", description="Input arguments of the tool call")
     tool_output: str = Field(default="", description="Execution output/result of the tool call")
     done: bool = Field(default=False, description="Whether the stream is complete")
+    interrupted: bool = Field(default=False, description="Whether the graph is paused waiting for human input")
+    interrupt_question: str = Field(default="", description="The question posed when interrupted")
 
 
 class SessionTitle(BaseModel):

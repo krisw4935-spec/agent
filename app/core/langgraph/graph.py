@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import re
 from typing import (
     Any,
     AsyncGenerator,
@@ -69,6 +68,40 @@ _get_friendly_tool_name = get_friendly_tool_name
 _is_rate_limit_error = is_rate_limit_error
 
 PostgresConnPool = AsyncConnectionPool[AsyncConnection[DictRow]]
+
+_INTERRUPT_FALLBACK = "Waiting for input."
+_ASK_HUMAN_STATUS = TOOL_STATUS_MESSAGES.get("ask_human", "正在请求人工确认...")
+
+
+def _extract_interrupt_value(state: StateSnapshot) -> str:
+    """Extract the human-interrupt question from a LangGraph state snapshot."""
+    if not state.tasks:
+        return _INTERRUPT_FALLBACK
+    interrupts = getattr(state.tasks[0], "interrupts", None) or ()
+    if not interrupts:
+        return _INTERRUPT_FALLBACK
+    return str(interrupts[0].value)
+
+
+def _interrupt_message(question: str) -> Message:
+    """Build an assistant message that signals a pending human interrupt."""
+    return Message(
+        role="assistant",
+        content=question,
+        interrupted=True,
+        interrupt_question=question,
+    )
+
+
+def _interrupt_stream_event(question: str) -> dict[str, str | bool]:
+    """Build a stream event payload for a pending human interrupt."""
+    return {
+        "status": _ASK_HUMAN_STATUS,
+        "content": question,
+        "tool_name": "ask_human",
+        "interrupted": True,
+        "interrupt_question": question,
+    }
 
 
 class LangGraphAgent:
@@ -216,18 +249,18 @@ class LangGraphAgent:
 
             state = await graph.aget_state(config)
             if state.next:
-                interrupt_value = state.tasks[0].interrupts[0].value if state.tasks else "Waiting for input."
-                logger.info("graph_interrupted", session_id=session_id, interrupt_value=str(interrupt_value))
-                return [Message(role="assistant", content=str(interrupt_value))]
+                interrupt_value = _extract_interrupt_value(state)
+                logger.info("graph_interrupted", session_id=session_id, interrupt_value=interrupt_value)
+                return [_interrupt_message(interrupt_value)]
 
             openai_msgs = cast(list[dict], convert_to_openai_messages(response["messages"]))
             asyncio.create_task(memory_service.add(user_id, openai_msgs, config.get("metadata")))
             return process_graph_messages(response["messages"])
         except GraphInterrupt:
             state = await graph.aget_state(config)
-            interrupt_value = state.tasks[0].interrupts[0].value if state.tasks else "Waiting for input."
-            logger.info("graph_interrupted", session_id=session_id, interrupt_value=str(interrupt_value))
-            return [Message(role="assistant", content=str(interrupt_value))]
+            interrupt_value = _extract_interrupt_value(state)
+            logger.info("graph_interrupted", session_id=session_id, interrupt_value=interrupt_value)
+            return [_interrupt_message(interrupt_value)]
         except Exception as e:
             logger.exception("get_response_failed", error=str(e), session_id=session_id)
             raise
@@ -238,7 +271,7 @@ class LangGraphAgent:
         session_id: str,
         user_id: Optional[str] = None,
         username: Optional[str] = None,
-    ) -> AsyncGenerator[dict[str, str], None]:
+    ) -> AsyncGenerator[dict[str, Any], None]:
         """Get a stream response from the LLM with live tool and status visibility."""
         config = self._build_runnable_config(session_id, user_id, username)
         graph = await self._get_graph()
@@ -290,16 +323,12 @@ class LangGraphAgent:
 
                     elif event_type == "on_tool_end":
                         output_data = event.get("data", {}).get("output")
-                        tool_img_content = ""
                         out_str = ""
                         if output_data:
                             out_str = output_data.content if hasattr(output_data, "content") else str(output_data)
-                            imgs = re.findall(r"!\[[^\]]*\]\([^\)]+\)", out_str)
-                            if imgs:
-                                tool_img_content = "\n\n" + "\n\n".join(imgs) + "\n\n"
                         yield {
                             "status": f"✅ {event_name} 运算完成",
-                            "content": tool_img_content,
+                            "content": "",
                             "tool_name": event_name,
                             "tool_args": "",
                             "tool_output": out_str,
@@ -382,17 +411,17 @@ class LangGraphAgent:
 
             state = await graph.aget_state(config)
             if state.next:
-                interrupt_value = state.tasks[0].interrupts[0].value if state.tasks else "Waiting for input."
-                logger.info("graph_interrupted_stream", session_id=session_id, interrupt_value=str(interrupt_value))
-                yield {"status": "", "content": str(interrupt_value), "tool_name": ""}
+                interrupt_value = _extract_interrupt_value(state)
+                logger.info("graph_interrupted_stream", session_id=session_id, interrupt_value=interrupt_value)
+                yield _interrupt_stream_event(interrupt_value)
             elif state.values and "messages" in state.values:
                 openai_msgs = cast(list[dict], convert_to_openai_messages(state.values["messages"]))
                 asyncio.create_task(memory_service.add(user_id, openai_msgs, config.get("metadata")))
         except GraphInterrupt:
             state = await graph.aget_state(config)
-            interrupt_value = state.tasks[0].interrupts[0].value if state.tasks else "Waiting for input."
-            logger.info("graph_interrupted_stream", session_id=session_id, interrupt_value=str(interrupt_value))
-            yield {"status": "", "content": str(interrupt_value), "tool_name": ""}
+            interrupt_value = _extract_interrupt_value(state)
+            logger.info("graph_interrupted_stream", session_id=session_id, interrupt_value=interrupt_value)
+            yield _interrupt_stream_event(interrupt_value)
         except Exception as stream_error:
             logger.exception("stream_processing_failed", error=str(stream_error), session_id=session_id)
             raise stream_error
@@ -402,7 +431,28 @@ class LangGraphAgent:
         graph = await self._get_graph()
         config: RunnableConfig = {"configurable": {"thread_id": session_id}}
         state: StateSnapshot = await graph.aget_state(config=config)
-        return process_graph_messages(state.values["messages"]) if state.values else []
+        if not state.values:
+            return []
+
+        messages = process_graph_messages(state.values["messages"])
+        if state.next:
+            interrupt_value = _extract_interrupt_value(state)
+            logger.info(
+                "chat_history_pending_interrupt",
+                session_id=session_id,
+                interrupt_value=interrupt_value,
+            )
+            if messages and messages[-1].role == "assistant":
+                messages[-1] = messages[-1].model_copy(
+                    update={
+                        "interrupted": True,
+                        "interrupt_question": interrupt_value,
+                        "content": messages[-1].content or interrupt_value,
+                    }
+                )
+            else:
+                messages.append(_interrupt_message(interrupt_value))
+        return messages
 
     async def clear_chat_history(self, session_id: str) -> None:
         """Clear all chat history for a given thread ID."""
