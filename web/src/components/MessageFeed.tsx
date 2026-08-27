@@ -1,19 +1,28 @@
 import { useEffect, useRef } from 'react'
 import { useChatStore } from '@/store/chat-store'
 import { MessageRow } from '@/components/MessageRow'
+import { SuggestedQuestions } from '@/components/SuggestedQuestions'
 import { useImageModalStore } from '@/store/image-modal-store'
+import { DEFAULT_GREETING } from '@/lib/format'
 
 export function MessageFeed() {
   const messages = useChatStore(state => state.messages)
   const busy = useChatStore(state => state.busy)
+  const suggestedQuestions = useChatStore(state => state.suggestedQuestions)
+  const suggestedQuestionsLoading = useChatStore(state => state.suggestedQuestionsLoading)
   const feedRef = useRef<HTMLDivElement>(null)
   const openImage = useImageModalStore(state => state.open)
+
+  const showSuggestions = messages.length === 1
+    && messages[0]?.role === 'assistant'
+    && messages[0]?.content === DEFAULT_GREETING
+    && (suggestedQuestionsLoading || suggestedQuestions.length > 0)
 
   useEffect(() => {
     const node = feedRef.current
     if (node)
       node.scrollTop = node.scrollHeight
-  }, [messages, busy])
+  }, [messages, busy, suggestedQuestions, suggestedQuestionsLoading])
 
   return (
     <div
@@ -34,6 +43,7 @@ export function MessageFeed() {
             streaming={busy && index === messages.length - 1 && message.role === 'assistant'}
           />
         ))}
+        {showSuggestions ? <SuggestedQuestions /> : null}
       </div>
     </div>
   )

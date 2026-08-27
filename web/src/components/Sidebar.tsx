@@ -196,12 +196,6 @@ export function Sidebar() {
             )}
         </div>
       </div>
-
-      <div className="pt-3 border-t border-default">
-        <Text type="tertiary" size="small" className="whitespace-pre-wrap font-mono w-full block">
-          {sessionMeta}
-        </Text>
-      </div>
     </div >
   )
 }

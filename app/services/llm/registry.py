@@ -40,14 +40,17 @@ _BASE_URL = settings.OPENAI_BASE_URL
 
 def _build_chat_openai(model_name: str, **kwargs: Any) -> ChatOpenAI:
     """Create a ChatOpenAI client pointed at the configured OpenAI-compatible gateway."""
-    return ChatOpenAI(
-        model=model_name,
-        api_key=_API_KEY,
-        base_url=_BASE_URL,
-        max_completion_tokens=settings.MAX_TOKENS,
-        temperature=settings.DEFAULT_LLM_TEMPERATURE,
-        **kwargs,
-    )
+    params: dict[str, Any] = {
+        "model": model_name,
+        "api_key": _API_KEY,
+        "base_url": _BASE_URL,
+        "max_completion_tokens": settings.MAX_TOKENS,
+        "temperature": settings.DEFAULT_LLM_TEMPERATURE,
+    }
+    if "max_tokens" in kwargs:
+        params.pop("max_completion_tokens", None)
+    params.update(kwargs)
+    return ChatOpenAI(**params)
 
 
 def _build_registry_entries() -> List[Dict[str, Any]]:

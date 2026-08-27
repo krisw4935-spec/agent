@@ -5,8 +5,10 @@ from app.schemas.base import BaseResponse
 from app.schemas.chat import (
     ChatRequest,
     ChatResponse,
+    InterruptResponse,
     Message,
     MessageSegment,
+    ResumeRequest,
     StreamResponse,
     ToolCallInfo,
 )
@@ -17,8 +19,10 @@ __all__ = [
     "BaseResponse",
     "ChatRequest",
     "ChatResponse",
+    "InterruptResponse",
     "Message",
     "MessageSegment",
+    "ResumeRequest",
     "StreamResponse",
     "ToolCallInfo",
     "GraphState",

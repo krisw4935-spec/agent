@@ -17,6 +17,7 @@ from langchain_core.messages import (
 )
 from langchain_core.runnables.config import RunnableConfig
 from langchain_core.tools.base import BaseTool
+from langgraph.errors import GraphInterrupt
 from langgraph.graph.state import Command
 
 from app.core.config import settings
@@ -138,6 +139,8 @@ async def run_tutor_with_tools(
                             tool_call_id=tc_id,
                         )
                     )
+                except GraphInterrupt:
+                    raise
                 except Exception as tool_err:
                     logger.warning(
                         "tutor_tool_invocation_error",
@@ -214,6 +217,8 @@ async def run_tutor_with_tools(
             },
             goto="critic",
         )
+    except GraphInterrupt:
+        raise
     except Exception as e:
         logger.warning(
             "tutor_node_with_tools_degraded",

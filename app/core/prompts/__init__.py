@@ -16,6 +16,9 @@ with open(os.path.join(_PROMPTS_DIR, "system.md"), "r") as _f:
 with open(os.path.join(_PROMPTS_DIR, "session_title.md"), "r") as _f:
     SESSION_TITLE_PROMPT = _f.read()
 
+with open(os.path.join(_PROMPTS_DIR, "suggested_questions.md"), "r") as _f:
+    SUGGESTED_QUESTIONS_PROMPT = _f.read()
+
 _NODE_PROMPT_FILES = {
     "explain": "explain.md",
     "verify": "verify.md",

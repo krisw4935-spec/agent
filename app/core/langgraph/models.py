@@ -19,7 +19,7 @@ TOOL_STATUS_MESSAGES: dict[str, str] = {
     "python_sandbox_execute": "⚡ 正在启动 E2B 云端沙箱执行 Python 代码验证...",
     "plot_math_function": "📈 正在使用 Matplotlib 绘制函数图像与坐标系...",
     "sympy_calculate": "🧮 正在调用 SymPy 进行代数符号精确验算...",
-    "ask_human": "🙋 正在请求人工辅助确认...",
+    "ask_human": "🙋 正在等待用户确认与选择...",
     "critic_review": "🕵️ 正在进行 Critic 双智能体逻辑与边界质检...",
 }
 
@@ -37,7 +37,7 @@ FRIENDLY_TOOL_NAMES: dict[str, str] = {
     "python_sandbox_execute": "Python 代码沙箱自验",
     "plot_math_function": "Matplotlib 函数图表绘制",
     "sympy_calculate": "SymPy 代数精确核算",
-    "ask_human": "人工教师专家辅助",
+    "ask_human": "等待用户确认与选择",
     "critic_review": "Critic 双智能体审校与质检",
 }
 

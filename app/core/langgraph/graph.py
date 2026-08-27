@@ -38,8 +38,10 @@ from app.core.config import settings
 from app.core.langgraph.graph_builder import build_math_tutor_graph
 from app.core.langgraph.helpers import (
     degrade_tutor_tool_loop,
+    format_context_aware_input,
     get_friendly_tool_name,
     get_last_user_content,
+    get_substantive_user_content,
     is_rate_limit_error,
 )
 from app.core.langgraph.message_processor import process_graph_messages
@@ -83,23 +85,25 @@ def _extract_interrupt_value(state: StateSnapshot) -> str:
     return str(interrupts[0].value)
 
 
-def _interrupt_message(question: str) -> Message:
+def _interrupt_message(question: str, manual: bool = False) -> Message:
     """Build an assistant message that signals a pending human interrupt."""
     return Message(
         role="assistant",
         content=question,
         interrupted=True,
         interrupt_question=question,
+        manual_interrupted=manual,
     )
 
 
-def _interrupt_stream_event(question: str) -> dict[str, str | bool]:
+def _interrupt_stream_event(question: str, manual: bool = False) -> dict[str, Any]:
     """Build a stream event payload for a pending human interrupt."""
     return {
-        "status": _ASK_HUMAN_STATUS,
+        "status": "⚠️ 对话已手动中断" if manual else _ASK_HUMAN_STATUS,
         "content": question,
-        "tool_name": "ask_human",
+        "tool_name": "manual_interrupt" if manual else "ask_human",
         "interrupted": True,
+        "manual_interrupted": manual,
         "interrupt_question": question,
     }
 
@@ -114,11 +118,57 @@ class LangGraphAgent:
         self.tools_by_name = {tool.name: tool for tool in tools}
         self._connection_pool: Optional[PostgresConnPool] = None
         self._graph: Optional[CompiledStateGraph] = None
+        self._active_tasks: dict[str, set[asyncio.Task[Any]]] = {}
+        self._interrupted_sessions: set[str] = set()
         logger.info(
             "langgraph_agent_initialized",
             model=settings.DEFAULT_LLM_MODEL,
             environment=settings.ENVIRONMENT.value,
         )
+
+    def register_task(self, session_id: str, task: asyncio.Task[Any]) -> None:
+        """Register an active asyncio task for a session."""
+        if session_id not in self._active_tasks:
+            self._active_tasks[session_id] = set()
+        self._active_tasks[session_id].add(task)
+        task.add_done_callback(lambda t: self.unregister_task(session_id, t))
+
+    def unregister_task(self, session_id: str, task: asyncio.Task[Any]) -> None:
+        """Unregister an active task when it completes."""
+        tasks = self._active_tasks.get(session_id)
+        if tasks and task in tasks:
+            tasks.discard(task)
+            if not tasks:
+                self._active_tasks.pop(session_id, None)
+
+    def interrupt_session(self, session_id: str) -> bool:
+        """Manually interrupt all running tasks for the given session."""
+        self._interrupted_sessions.add(session_id)
+        tasks = self._active_tasks.get(session_id)
+        if not tasks:
+            logger.info("interrupt_session_no_active_tasks", session_id=session_id)
+            return False
+
+        cancelled_count = 0
+        for task in list(tasks):
+            if not task.done():
+                task.cancel()
+                cancelled_count += 1
+
+        logger.info(
+            "session_interrupted_by_user",
+            session_id=session_id,
+            cancelled_tasks=cancelled_count,
+        )
+        return cancelled_count > 0
+
+    def is_session_interrupted(self, session_id: str) -> bool:
+        """Check if session was flagged as interrupted."""
+        return session_id in self._interrupted_sessions
+
+    def clear_session_interrupted(self, session_id: str) -> None:
+        """Clear the interrupted flag for a session."""
+        self._interrupted_sessions.discard(session_id)
 
     async def _get_connection_pool(self) -> PostgresConnPool:
         """Get a PostgreSQL connection pool using environment-specific settings."""
@@ -217,30 +267,45 @@ class LangGraphAgent:
         session_id: str,
         user_id: Optional[str] = None,
         username: Optional[str] = None,
+        is_resume: bool = False,
+        resume_prompt: Optional[str] = None,
     ) -> list[Message]:
         """Get a response from the LLM."""
         graph = await self._get_graph()
         config = self._build_runnable_config(session_id, user_id, username)
+        self.clear_session_interrupted(session_id)
 
         try:
+            query_content = resume_prompt or (messages[-1].content if messages else "请继续")
             state, relevant_memory, evolved_lessons = await asyncio.gather(
                 graph.aget_state(config),
-                memory_service.search(user_id, messages[-1].content),
-                evolution_service.search_relevant_reflections(messages[-1].content),
+                memory_service.search(user_id, query_content),
+                evolution_service.search_relevant_reflections(query_content),
             )
 
             with langfuse_trace_context(session_id, user_id):
                 if state.next:
                     logger.info("resuming_interrupted_graph", session_id=session_id, next_nodes=state.next)
                     response = await graph.ainvoke(
-                        Command(resume=messages[-1].content),
+                        Command(resume=query_content),
                         config=config,
                     )
                 else:
                     relevant_memory = relevant_memory or "No relevant memory found."
+                    if is_resume and not messages:
+                        input_messages = [
+                            {
+                                "role": "user",
+                                "content": f"【继续生成请求】{query_content}"
+                                if resume_prompt
+                                else "请紧接着上一轮的推导和内容继续回答。",
+                            }
+                        ]
+                    else:
+                        input_messages = dump_messages(messages)
                     response = await graph.ainvoke(
                         input={
-                            "messages": dump_messages(messages),
+                            "messages": input_messages,
                             "long_term_memory": relevant_memory,
                             "evolved_lessons": evolved_lessons,
                         },
@@ -271,29 +336,49 @@ class LangGraphAgent:
         session_id: str,
         user_id: Optional[str] = None,
         username: Optional[str] = None,
+        is_resume: bool = False,
+        resume_prompt: Optional[str] = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Get a stream response from the LLM with live tool and status visibility."""
         config = self._build_runnable_config(session_id, user_id, username)
         graph = await self._get_graph()
+        self.clear_session_interrupted(session_id)
 
         try:
+            query_content = resume_prompt or (messages[-1].content if messages else "请继续")
             state, relevant_memory, evolved_lessons = await asyncio.gather(
                 graph.aget_state(config),
-                memory_service.search(user_id, messages[-1].content),
-                evolution_service.search_relevant_reflections(messages[-1].content),
+                memory_service.search(user_id, query_content),
+                evolution_service.search_relevant_reflections(query_content),
             )
 
             with langfuse_trace_context(session_id, user_id):
                 if state.next:
                     logger.info("resuming_interrupted_graph_stream", session_id=session_id, next_nodes=state.next)
-                    graph_input = Command(resume=messages[-1].content)
+                    graph_input = Command(resume=query_content)
                 else:
                     relevant_memory = relevant_memory or "No relevant memory found."
+                    if is_resume and not messages:
+                        input_messages = [
+                            {
+                                "role": "user",
+                                "content": f"【继续生成请求】{query_content}"
+                                if resume_prompt
+                                else "请紧接着上一轮的推导和内容继续回答。",
+                            }
+                        ]
+                    else:
+                        input_messages = dump_messages(messages)
                     graph_input = {
-                        "messages": dump_messages(messages),
+                        "messages": input_messages,
                         "long_term_memory": relevant_memory,
                         "evolved_lessons": evolved_lessons,
                     }
+
+                state_msgs = state.values.get("messages", []) if (state and getattr(state, "values", None)) else []
+                substantive_topic = get_substantive_user_content(state_msgs or messages)
+                current_user_input = get_last_user_content(messages) if messages else query_content
+                router_input_summary = format_context_aware_input(current_user_input, substantive_topic)
 
                 yield {"status": "🔍 正在分析题目意图与解题策略...", "content": "", "tool_name": ""}
 
@@ -340,7 +425,7 @@ class LangGraphAgent:
                                 "status": "🔍 正在分析题目意图与解题策略规划...",
                                 "content": "",
                                 "tool_name": "router_decision",
-                                "tool_args": get_last_user_content(messages),
+                                "tool_args": router_input_summary,
                                 "tool_output": "",
                             }
                         elif event_name == "critic":
@@ -371,16 +456,16 @@ class LangGraphAgent:
                                 "status": "✅ 意图路由与策略规划完成",
                                 "content": "",
                                 "tool_name": "router_decision",
-                                "tool_args": get_last_user_content(messages),
+                                "tool_args": router_input_summary,
                                 "tool_output": node_output,
                             }
                         elif event_name == "critic":
                             yield {
                                 "status": "✅ 已完成 Critic 双智能体审校",
-                                "content": "",
                                 "tool_name": "critic_review",
                                 "tool_args": "针对 6 项审校标准的逐条质检审校",
                                 "tool_output": node_output,
+                                "content": "",
                             }
 
                     elif event_type == "on_chat_model_stream":
@@ -452,6 +537,14 @@ class LangGraphAgent:
                 )
             else:
                 messages.append(_interrupt_message(interrupt_value))
+        elif self.is_session_interrupted(session_id) and messages and messages[-1].role == "assistant":
+            messages[-1] = messages[-1].model_copy(
+                update={
+                    "interrupted": True,
+                    "manual_interrupted": True,
+                    "interrupt_question": "用户手动中断",
+                }
+            )
         return messages
 
     async def clear_chat_history(self, session_id: str) -> None:

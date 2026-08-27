@@ -47,7 +47,7 @@ const TOOL_NAME_MAP: Record<string, string> = {
   python_sandbox_execute: 'Python 代码沙箱自验',
   plot_math_function: 'Matplotlib 函数图表绘制',
   sympy_calculate: 'SymPy 代数精确核算',
-  ask_human: '人工教师专家辅助',
+  ask_human: '等待用户确认与选择',
   critic_review: 'Critic 双智能体审校与质检',
 }
 
@@ -73,27 +73,10 @@ export function getToolOutputLabel(toolName?: string): string {
   return '📤 执行结果 (Execution Output)'
 }
 
-export const DEFAULT_GREETING = '你好！我是 **Math Teacher** 数学导师。\n\n我可以为你：\n- 📈 **图文并茂讲解函数与几何**（自动画图）\n- ✏️ **批改作业与推导步骤**\n- 🎯 **设计针对性练习题**\n\n直接在下方输入你的数学问题吧！'
+export const DEFAULT_GREETING = '你好！我是 **Math Teacher** 数学导师。\n\n我可以为你：\n- 📈 **图文并茂讲解函数与几何**（自动画图）\n- ✏️ **批改作业与推导步骤**\n- 🎯 **设计针对性练习题**\n\n点击下方推荐问题开始，或直接输入你的数学问题吧！'
 
 export const WELCOME_AUTH_MESSAGE = '欢迎使用 **Math Teacher** 智能数学导师！\n\n请先登录或注册账号，以使用数学辅导与保存历史记录。'
 
 export const LOGOUT_MESSAGE = '您已退出登录。请重新登录以开启辅导对话与查看历史记录。'
 
-export const QUICK_PROMPTS = [
-  {
-    label: '📈 画二次函数图像',
-    prompt: '什么是二次函数？请画出 y=x^2-4x+3 的图像并讲解对称轴与顶点。',
-  },
-  {
-    label: '📐 勾股定理图文精讲',
-    prompt: '请用通俗的方式和图像讲解勾股定理。',
-  },
-  {
-    label: '✏️ 批改作业',
-    prompt: '我的解法：解方程 2x^2-7x+3=0，因式分解得 (2x-1)(x-3)=0，所以 x=1/2 或 x=3。请帮我检查。',
-  },
-  {
-    label: '🎯 出练习题',
-    prompt: '给我出 2 道一元二次方程练习题，只要启发提示，不要直接给答案。',
-  },
-] as const
+

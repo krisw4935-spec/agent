@@ -3,20 +3,95 @@
 import asyncio
 import io
 
+import re
 from typing import Any, cast
+from uuid import uuid4
 
 import matplotlib  # type: ignore
 
 matplotlib.use("Agg")  # Non-interactive backend for server environments
 import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
-from langchain_core.tools import tool
 import sympy as sp  # type: ignore
-
-from uuid import uuid4
+from langchain_core.tools import tool
 
 from app.core.logging import logger
 from app.services.storage import storage_service
+
+CHINESE_FONT_FAMILY: list[str] = [
+    "PingFang SC",
+    "Hiragino Sans GB",
+    "Heiti SC",
+    "STHeiti",
+    "Microsoft YaHei",
+    "SimHei",
+    "WenQuanYi Micro Hei",
+    "WenQuanYi Zen Hei",
+    "Noto Sans CJK SC",
+    "Source Han Sans CN",
+    "Arial Unicode MS",
+    "DejaVu Sans",
+    "sans-serif",
+]
+
+
+def _sanitize_math_cjk(text: str) -> str:
+    """Ensure Chinese characters are not wrapped inside Matplotlib mathtext ($...$) blocks."""
+
+    def _fix_math_block(match: re.Match[str]) -> str:
+        content = match.group(1)
+        if not any("\u4e00" <= c <= "\u9fff" for c in content):
+            return f"${content}$"
+        if ":" in content or "：" in content:
+            sep = ":" if ":" in content else "："
+            pfx, math_part = content.split(sep, 1)
+            math_part = math_part.strip()
+            if math_part:
+                return f"{pfx.strip()}: ${math_part}$"
+            return pfx.strip()
+        m = re.search(r"([a-zA-Z]\s*(?:\([a-zA-Z]\))?\s*=.*)", content)
+        if m:
+            pfx = content[:m.start()].strip()
+            formula = m.group(1).strip()
+            return f"{pfx} ${formula}$" if pfx else f"${formula}$"
+        return content
+
+    return re.sub(r"\$([^\$]+)\$", _fix_math_block, text)
+
+
+def _format_plot_text(text: str, default_text: str) -> str:
+    """Format plot titles and legend labels with proper LaTeX math support and Chinese font safety."""
+    if not text or not text.strip():
+        return default_text
+    t = text.strip()
+    if "$" in t:
+        return _sanitize_math_cjk(t)
+
+    has_cjk = any("\u4e00" <= char <= "\u9fff" for char in t)
+    if not has_cjk:
+        cleaned = t.replace("**", "^").replace("*", "")
+        if "=" in cleaned:
+            parts = cleaned.split("=", 1)
+            return f"${parts[0].strip()} = {parts[1].strip()}$"
+        return f"${cleaned}$"
+
+    if ":" in t or "：" in t:
+        sep = ":" if ":" in t else "："
+        prefix, eq = t.split(sep, 1)
+        eq_clean = eq.replace("**", "^").replace("*", "").strip()
+        if eq_clean:
+            return f"{prefix.strip()}: ${eq_clean}$"
+        return prefix.strip()
+
+    m = re.search(r"([a-zA-Z]\s*(?:\([a-zA-Z]\))?\s*=.*)", t)
+    if m:
+        prefix = t[:m.start()].strip()
+        formula = m.group(1).replace("**", "^").replace("*", "").strip()
+        if prefix:
+            return f"{prefix} ${formula}$"
+        return f"${formula}$"
+
+    return t
 
 
 def _render_function_plot_bytes(
@@ -53,35 +128,12 @@ def _render_function_plot_bytes(
 
     # Plot styling
     plt.style.use("seaborn-v0_8-whitegrid" if "seaborn-v0_8-whitegrid" in plt.style.available else "default")
-    plt.rcParams["font.sans-serif"] = [
-        "PingFang SC",
-        "Heiti SC",
-        "Hiragino Sans GB",
-        "Microsoft YaHei",
-        "SimHei",
-        "DejaVu Sans",
-        "Arial",
-        "sans-serif",
-    ]
+    plt.rcParams["font.sans-serif"] = CHINESE_FONT_FAMILY
     plt.rcParams["axes.unicode_minus"] = False
     fig, ax = plt.subplots(figsize=(7, 4.2), dpi=120)
 
-    # Helper for standard LaTeX math formatting in Matplotlib mathtext
-    def _to_latex_str(text: str, default_latex: str) -> str:
-        if not text:
-            return default_latex
-        t = text.strip()
-        if "$" in t:
-            return t
-        # Convert plain text exponent and multiplication to LaTeX
-        cleaned = t.replace("**", "^").replace("*", "")
-        if "=" in cleaned:
-            parts = cleaned.split("=", 1)
-            return f"${parts[0].strip()} = {parts[1].strip()}$"
-        return f"${cleaned}$"
-
     # Plot curve with standard LaTeX label
-    curve_label = _to_latex_str(label, f"$y = {sp.latex(expr)}$")
+    curve_label = _format_plot_text(label, f"$y = {sp.latex(expr)}$")
     ax.plot(x_vals, y_vals, label=curve_label, color="#1f7a5c", linewidth=2.4)
 
     # Draw standard Cartesian axes
@@ -113,7 +165,7 @@ def _render_function_plot_bytes(
         pass
 
     # Styling labels and title with LaTeX formula support
-    plot_title = _to_latex_str(title, f"函数图像: $y = {sp.latex(expr)}$")
+    plot_title = _format_plot_text(title, f"函数图像: $y = {sp.latex(expr)}$")
     ax.set_title(plot_title, fontsize=13, pad=12, color="#0b1f33", fontweight="bold")
     ax.set_xlabel("$x$", fontsize=11, color="#3a5166")
     ax.set_ylabel("$y$", fontsize=11, color="#3a5166")

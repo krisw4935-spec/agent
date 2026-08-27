@@ -72,16 +72,17 @@ class SkillRegistry:
             )
         )
 
-        # 4. Student Intent Clarification Skill
+        # 4. Student Intent Clarification & Branch Confirmation Skill
         self.register(
             Skill(
                 name="student_clarification",
-                display_name="学情诊断与启发式追问技能",
+                display_name="学情诊断与关键决策确认技能",
                 category="pedagogy",
-                description="在学生问题存在重大歧义或缺失关键约束条件时，向学生提出启发式澄清。",
+                description="在解题中途遇到关键分歧、需要学生确认解题分支或补充关键假设时暂停并等待用户选择确认。",
                 tools=[ask_human],
                 prompt_guidance=(
-                    "- **学情启发**：仅在学生题目信息严重缺失时调用 `ask_human` 进行针对性确认。"
+                    "- **关键路径确认与中断追问 (ask_human)**：仅在多步解题推导中途遇到多种可选解法路径（例如：选择代数解法还是几何辅助线解法）、或者题目存在重大歧义必须由学生确认分支方可继续时，调用 `ask_human(question='...')` 暂停执行并等待学生选择。\n"
+                    "  **注意**：如果是初次问候或普通对话，请直接在正文回复，切勿调用 `ask_human`。"
                 ),
             )
         )

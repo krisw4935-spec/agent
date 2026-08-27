@@ -43,6 +43,12 @@ export interface MessageSegment {
   status?: string
 }
 
+export interface InterruptResponse {
+  success: boolean
+  message: string
+  session_id: string
+}
+
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system'
   content: string
@@ -51,6 +57,7 @@ export interface ChatMessage {
   segments?: MessageSegment[]
   interrupted?: boolean
   interrupt_question?: string
+  manual_interrupted?: boolean
 }
 
 export interface StreamPayload {
@@ -63,6 +70,7 @@ export interface StreamPayload {
   done?: boolean
   interrupted?: boolean
   interrupt_question?: string
+  manual_interrupted?: boolean
 }
 
 export interface StreamSegment {
@@ -75,4 +83,10 @@ export interface StreamSegment {
   tool_name?: string
   tool_args?: string
   tool_output?: string
+}
+
+export interface SuggestedQuestion {
+  label: string
+  grade?: string
+  prompt: string
 }

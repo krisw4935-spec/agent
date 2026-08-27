@@ -4,6 +4,7 @@ import re
 from typing import (
     List,
     Literal,
+    Optional,
 )
 
 from pydantic import (
@@ -79,6 +80,7 @@ class Message(BaseModel):
     )
     interrupted: bool = Field(default=False, description="Whether the graph is paused waiting for human input")
     interrupt_question: str = Field(default="", description="The question posed when interrupted")
+    manual_interrupted: bool = Field(default=False, description="Whether the turn was manually interrupted by the user")
 
     @field_validator("content")
     @classmethod
@@ -154,6 +156,7 @@ class StreamResponse(BaseResponse):
     done: bool = Field(default=False, description="Whether the stream is complete")
     interrupted: bool = Field(default=False, description="Whether the graph is paused waiting for human input")
     interrupt_question: str = Field(default="", description="The question posed when interrupted")
+    manual_interrupted: bool = Field(default=False, description="Whether the turn was manually interrupted by the user")
 
 
 class SessionTitle(BaseModel):
@@ -172,3 +175,57 @@ class SessionTitle(BaseModel):
         if not v:
             raise ValueError("empty title after normalization")
         return v
+
+
+class SuggestedQuestion(BaseModel):
+    """A clickable suggested question for the chat greeting."""
+
+    label: str = Field(..., min_length=1, max_length=32, description="Short button label")
+    grade: Optional[str] = Field(
+        default=None,
+        description="Grade dimension, e.g. '小学', '初中', '高中', or '综合'",
+    )
+    prompt: str = Field(..., min_length=1, max_length=500, description="Full user message to send")
+
+    @field_validator("label", "prompt")
+    @classmethod
+    def _normalize_text(cls, v: str) -> str:
+        cleaned = " ".join(v.split()).strip()
+        if not cleaned:
+            raise ValueError("empty suggested question text")
+        return cleaned
+
+
+class SuggestedQuestionsResult(BaseModel):
+    """Structured LLM output for greeting suggested questions."""
+
+    questions: List[SuggestedQuestion] = Field(
+        ...,
+        min_length=3,
+        max_length=6,
+        description="Recommended starter questions for a new chat",
+    )
+
+
+class SuggestedQuestionsResponse(BaseResponse):
+    """API response for greeting suggested questions."""
+
+    questions: List[SuggestedQuestion] = Field(
+        ...,
+        description="Recommended starter questions for a new chat",
+    )
+
+
+class InterruptResponse(BaseResponse):
+    """Response model for chat interruption endpoint."""
+
+    success: bool = Field(default=True, description="Whether interruption succeeded")
+    message: str = Field(default="Session interrupted successfully", description="Status message")
+    session_id: str = Field(..., description="The interrupted session id")
+
+
+class ResumeRequest(BaseModel):
+    """Request model for resuming an interrupted chat."""
+
+    prompt: str = Field(default="", description="Optional additional guidance or continuation prompt")
+

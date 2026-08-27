@@ -1,5 +1,5 @@
 import { API_BASE, api } from '@/api/client'
-import type { ChatMessage, StreamPayload } from '@/types'
+import type { ChatMessage, InterruptResponse, StreamPayload, SuggestedQuestion } from '@/types'
 
 interface MessagesResponse {
   messages: ChatMessage[]
@@ -9,8 +9,16 @@ interface ChatResponse {
   messages: ChatMessage[]
 }
 
+interface SuggestedQuestionsResponse {
+  questions: SuggestedQuestion[]
+}
+
 export function fetchMessages(token: string, timeoutMs = 6000) {
   return api<MessagesResponse>('/chatbot/messages', { token, timeoutMs })
+}
+
+export function fetchSuggestedQuestions(token: string, timeoutMs = 12000) {
+  return api<SuggestedQuestionsResponse>('/chatbot/suggested-questions', { token, timeoutMs })
 }
 
 export function sendChat(token: string, messages: Pick<ChatMessage, 'role' | 'content'>[]) {
@@ -21,9 +29,17 @@ export function sendChat(token: string, messages: Pick<ChatMessage, 'role' | 'co
   })
 }
 
-export async function* streamChat(token: string, content: string): AsyncGenerator<StreamPayload> {
+export function interruptChat(token: string) {
+  return api<InterruptResponse>('/chatbot/chat/interrupt', {
+    method: 'POST',
+    token,
+  })
+}
+
+export async function* streamChat(token: string, content: string, signal?: AbortSignal): AsyncGenerator<StreamPayload> {
   const response = await fetch(`${API_BASE}/chatbot/chat/stream`, {
     method: 'POST',
+    signal,
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
@@ -65,3 +81,50 @@ export async function* streamChat(token: string, content: string): AsyncGenerato
     }
   }
 }
+
+export async function* resumeChatStream(token: string, prompt = '', signal?: AbortSignal): AsyncGenerator<StreamPayload> {
+  const response = await fetch(`${API_BASE}/chatbot/chat/resume`, {
+    method: 'POST',
+    signal,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ prompt }),
+  })
+
+  if (!response.ok) {
+    const errBody = await response.json().catch(() => ({})) as { detail?: string }
+    throw new Error(errBody.detail || `恢复失败 (${response.status})`)
+  }
+
+  const reader = response.body?.getReader()
+  if (!reader)
+    throw new Error('流式响应不可用')
+
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done)
+      break
+
+    buffer += decoder.decode(value, { stream: true })
+    const chunks = buffer.split('\n\n')
+    buffer = chunks.pop() || ''
+
+    for (const chunk of chunks) {
+      const line = chunk.split('\n').find(item => item.startsWith('data: '))
+      if (!line)
+        continue
+      try {
+        yield JSON.parse(line.slice(6)) as StreamPayload
+      }
+      catch {
+        // ignore malformed chunks
+      }
+    }
+  }
+}
+

@@ -374,7 +374,7 @@
       python_sandbox_execute: "Python 代码沙箱自验",
       plot_math_function: "Matplotlib 函数图表绘制",
       sympy_calculate: "SymPy 代数精确核算",
-      ask_human: "人工教师专家辅助",
+      ask_human: "等待用户确认与选择",
       critic_review: "Critic 双智能体审校与质检",
     };
     return map[toolName] || toolName || "数学工具演算";

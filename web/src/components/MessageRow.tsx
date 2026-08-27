@@ -78,32 +78,18 @@ export function MessageRow({ message, streaming = false }: MessageRowProps) {
         >
           {isUser
             ? message.content
-            : isInterrupted
-              ? (
-                  <div className="flex flex-col gap-2">
-                    {priorSegments.length > 0
-                      ? (
-                          <AssistantContent
-                            content=""
-                            thinking={message.thinking}
-                            toolCalls={message.tool_calls}
-                            segments={priorSegments}
-                            streaming={streaming}
-                          />
-                        )
-                      : null}
-                    <HumanInterruptCard question={interruptQuestion} />
-                  </div>
-                )
-              : (
-                  <AssistantContent
-                    content={message.content}
-                    thinking={message.thinking}
-                    toolCalls={message.tool_calls}
-                    segments={message.segments}
-                    streaming={streaming}
-                  />
-                )}
+            : (
+                <AssistantContent
+                  content={message.content}
+                  thinking={message.thinking}
+                  toolCalls={message.tool_calls}
+                  segments={message.segments}
+                  streaming={streaming}
+                  interrupted={isInterrupted}
+                  interruptQuestion={interruptQuestion}
+                  manualInterrupted={message.manual_interrupted}
+                />
+              )}
         </div>
         {!isUser && (message.content || isInterrupted)
           ? (

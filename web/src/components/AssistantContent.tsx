@@ -1,9 +1,11 @@
-import { Collapse, Spin, Tag, Typography } from '@douyinfe/semi-ui-19'
+import { Button, Collapse, Spin, Tag, Typography } from '@douyinfe/semi-ui-19'
 import { Streamdown } from 'streamdown'
+import { HumanInterruptCard } from '@/components/HumanInterruptCard'
 import { getFriendlyToolName, getToolInputLabel, getToolOutputLabel } from '@/lib/format'
 import { extractThinkingFromContent } from '@/lib/markdown'
 import { katexStreamdownComponents } from '@/lib/katex-streamdown'
 import { streamdownPlugins } from '@/lib/streamdown'
+import { useChatStore } from '@/store/chat-store'
 import type { MessageSegment, ToolCall } from '@/types'
 
 const { Text } = Typography
@@ -14,6 +16,21 @@ interface AssistantContentProps {
   toolCalls?: ToolCall[]
   segments?: MessageSegment[]
   streaming?: boolean
+  interrupted?: boolean
+  interruptQuestion?: string
+  manualInterrupted?: boolean
+}
+
+function parseInterruptQuestion(toolArgs?: string, fallback = ''): string {
+  if (!toolArgs)
+    return fallback || '请确认后续推导步骤：'
+  try {
+    const parsed = JSON.parse(toolArgs)
+    if (parsed && typeof parsed === 'object' && parsed.question)
+      return String(parsed.question)
+  }
+  catch {}
+  return toolArgs || fallback || '请确认后续推导步骤：'
 }
 
 function InlineSpin() {
@@ -116,6 +133,29 @@ function ToolCallBlock({
   )
 }
 
+function ManualInterruptBanner() {
+  const busy = useChatStore(state => state.busy)
+  const resumeChat = useChatStore(state => state.resumeChat)
+  return (
+    <div className="flex items-center justify-between gap-3 p-2.5 rounded-lg bg-[rgba(var(--semi-orange-5),0.08)] border border-[rgba(var(--semi-orange-5),0.3)] my-2">
+      <div className="flex items-center gap-2">
+        <Tag size="small" color="orange">⚠️ 已手动中断</Tag>
+        <Text type="secondary" size="small">回答已暂停输出</Text>
+      </div>
+      <Button
+        theme="solid"
+        type="warning"
+        size="small"
+        icon={<span className="i-lucide-play w-[14px] h-[14px]" aria-hidden="true" />}
+        onClick={() => void resumeChat()}
+        disabled={busy}
+      >
+        继续生成
+      </Button>
+    </div>
+  )
+}
+
 function TextBlock({ content, streaming = false }: { content: string, streaming?: boolean }) {
   return (
     <Streamdown
@@ -136,12 +176,17 @@ export function AssistantContent({
   toolCalls = [],
   segments = [],
   streaming = false,
+  interrupted = false,
+  interruptQuestion = '',
+  manualInterrupted = false,
 }: AssistantContentProps) {
-  if (streaming && !content && !thinking && segments.length === 0)
+  if (streaming && !content && !thinking && segments.length === 0 && !interrupted)
     return <StreamingPlaceholder />
 
   if (segments.length > 0) {
     let toolCount = 0
+    const hasInterruptSegment = segments.some(s => s.tool_name === 'ask_human' && !s.tool_output)
+
     return (
       <div className="flex flex-col gap-2">
         {segments.map((segment, index) => {
@@ -156,6 +201,19 @@ export function AssistantContent({
           }
 
           if (segment.type === 'tool_call') {
+            if (segment.tool_name === 'ask_human') {
+              const q = parseInterruptQuestion(segment.tool_args, segment.status)
+              const hasOutput = Boolean(segment.tool_output)
+              return (
+                <HumanInterruptCard
+                  key={`interrupt-${index}`}
+                  question={q}
+                  answer={segment.tool_output}
+                  completed={hasOutput}
+                />
+              )
+            }
+
             toolCount += 1
             return (
               <ToolCallBlock
@@ -181,6 +239,18 @@ export function AssistantContent({
 
           return null
         })}
+
+        {manualInterrupted ? <ManualInterruptBanner /> : null}
+
+        {interrupted && !manualInterrupted && !hasInterruptSegment
+          ? (
+            <HumanInterruptCard
+              key="pending-interrupt"
+              question={interruptQuestion || '请确认后续推导步骤：'}
+              completed={false}
+            />
+          )
+          : null}
       </div>
     )
   }
@@ -194,18 +264,39 @@ export function AssistantContent({
       {cleanThinking
         ? <ThinkingBlock content={cleanThinking} completed={!streaming} />
         : null}
-      {toolCalls.map((toolCall, index) => (
-        <ToolCallBlock
-          key={`legacy-tool-${index}`}
-          toolName={toolCall.tool_name}
-          toolArgs={toolCall.tool_args}
-          toolOutput={toolCall.tool_output}
-          completed={!streaming}
-          stepNumber={index + 1}
-        />
-      ))}
+      {toolCalls.map((toolCall, index) => {
+        if (toolCall.tool_name === 'ask_human') {
+          return (
+            <HumanInterruptCard
+              key={`legacy-interrupt-${index}`}
+              question={parseInterruptQuestion(toolCall.tool_args, toolCall.status)}
+              answer={toolCall.tool_output}
+              completed={Boolean(toolCall.tool_output)}
+            />
+          )
+        }
+        return (
+          <ToolCallBlock
+            key={`legacy-tool-${index}`}
+            toolName={toolCall.tool_name}
+            toolArgs={toolCall.tool_args}
+            toolOutput={toolCall.tool_output}
+            completed={!streaming}
+            stepNumber={index + 1}
+          />
+        )
+      })}
       {cleanContent ? <TextBlock content={cleanContent} streaming={streaming} /> : null}
-      {!cleanContent && !cleanThinking && toolCalls.length === 0 && streaming
+      {manualInterrupted ? <ManualInterruptBanner /> : null}
+      {interrupted && !manualInterrupted
+        ? (
+          <HumanInterruptCard
+            question={interruptQuestion || '请确认后续推导步骤：'}
+            completed={false}
+          />
+        )
+        : null}
+      {!cleanContent && !cleanThinking && toolCalls.length === 0 && !interrupted && streaming
         ? <StreamingPlaceholder />
         : null}
     </div>

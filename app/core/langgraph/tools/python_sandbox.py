@@ -1,6 +1,7 @@
 """Python sandbox execution tool using E2B Code Interpreter with local fallback."""
 
 import asyncio
+import base64
 import io
 import math
 import statistics
@@ -13,12 +14,39 @@ from e2b_code_interpreter import AsyncSandbox
 from langchain_core.tools import tool
 
 from app.core.config import settings
+from app.core.langgraph.tools.math_plotter import CHINESE_FONT_FAMILY
 from app.core.logging import logger
 from app.services.storage import storage_service
+
+E2B_PREAMBLE: str = """
+try:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    plt.rcParams["font.sans-serif"] = [
+        "PingFang SC", "Hiragino Sans GB", "Heiti SC", "STHeiti",
+        "Microsoft YaHei", "SimHei", "WenQuanYi Micro Hei", "WenQuanYi Zen Hei",
+        "Noto Sans CJK SC", "Source Han Sans CN", "Arial Unicode MS", "DejaVu Sans", "sans-serif"
+    ]
+    plt.rcParams["axes.unicode_minus"] = False
+except Exception:
+    pass
+"""
 
 
 def _execute_code_local(code: str) -> str:
     """Execute Python code in local safe namespace as a fallback."""
+    # Ensure matplotlib Chinese fonts are preconfigured if matplotlib is available
+    try:
+        import matplotlib  # type: ignore
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt  # type: ignore
+
+        plt.rcParams["font.sans-serif"] = CHINESE_FONT_FAMILY
+        plt.rcParams["axes.unicode_minus"] = False
+    except Exception:
+        pass
     safe_globals: dict[str, Any] = {
         "__builtins__": {
             "abs": abs,
@@ -149,7 +177,9 @@ async def _execute_in_e2b(code: str) -> str:
 
     sandbox = await AsyncSandbox.create(api_key=api_key)
     try:
-        execution = await sandbox.run_code(code)
+        # Prepend font/matplotlib initialization if code utilizes matplotlib
+        exec_code = f"{E2B_PREAMBLE}\n{code}" if "plt" in code or "matplotlib" in code else code
+        execution = await sandbox.run_code(exec_code)
         result_parts: list[str] = []
 
         if execution.logs and execution.logs.stdout:
@@ -164,6 +194,19 @@ async def _execute_in_e2b(code: str) -> str:
 
         if execution.text:
             result_parts.append(f"RESULT:\n{execution.text.strip()}")
+
+        # Capture any matplotlib figures rendered in E2B sandbox
+        if execution.results:
+            for res in execution.results:
+                png_raw = getattr(res, "png", None)
+                if png_raw:
+                    try:
+                        img_bytes = base64.b64decode(png_raw) if isinstance(png_raw, str) else png_raw
+                        filename = f"e2b_geom_{uuid4().hex[:10]}.png"
+                        img_url = await storage_service.upload_image_bytes(img_bytes, filename=filename)
+                        result_parts.append(f"\n\n![示意图]({img_url})\n\n")
+                    except Exception as img_err:
+                        logger.warning("e2b_image_upload_failed", error=str(img_err))
 
         if execution.error:
             err_name = execution.error.name or "RuntimeError"

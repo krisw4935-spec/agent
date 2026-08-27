@@ -25,9 +25,13 @@ from app.models.session import Session
 from app.schemas.chat import (
     ChatRequest,
     ChatResponse,
+    InterruptResponse,
+    ResumeRequest,
     StreamResponse,
+    SuggestedQuestionsResponse,
 )
 from app.services.session_naming import maybe_name_session
+from app.services.suggested_questions import generate_suggested_questions
 
 router = APIRouter()
 agent = LangGraphAgent()
@@ -114,6 +118,9 @@ async def chat_stream(
             Raises:
                 Exception: If there's an error during streaming.
             """
+            current_task = asyncio.current_task()
+            if current_task is not None:
+                agent.register_task(session.id, current_task)
             try:
                 with llm_stream_duration_seconds.labels(model=agent.llm_service.get_llm().get_name()).time():
                     was_interrupted = False
@@ -136,6 +143,7 @@ async def chat_stream(
                                 tool_output=event.get("tool_output", ""),
                                 interrupted=bool(event.get("interrupted", False)),
                                 interrupt_question=str(event.get("interrupt_question", "") or ""),
+                                manual_interrupted=bool(event.get("manual_interrupted", False)),
                                 done=False,
                             )
                         else:
@@ -162,7 +170,12 @@ async def chat_stream(
                     error=str(e),
                 )
                 err_str = str(e)
-                is_429 = "429" in err_str or "rate limit" in err_str.lower() or "tpm" in err_str.lower() or "rpm" in err_str.lower()
+                is_429 = (
+                    "429" in err_str
+                    or "rate limit" in err_str.lower()
+                    or "tpm" in err_str.lower()
+                    or "rpm" in err_str.lower()
+                )
                 if is_429:
                     error_msg = (
                         f"\n\n---\n⚠️ **请求遭遇上游模型 429 速率限制错误 (Rate Limit Exceeded)**\n\n"
@@ -174,6 +187,9 @@ async def chat_stream(
                     error_msg = f"\n\n---\n❌ **生成过程中断**: {err_str}"
                 error_response = StreamResponse(content=error_msg, done=True)
                 yield f"data: {json.dumps(error_response.model_dump(mode='json'))}\n\n"
+            finally:
+                if current_task is not None:
+                    agent.unregister_task(session.id, current_task)
 
         return StreamingResponse(event_generator(), media_type="text/event-stream")
 
@@ -183,6 +199,126 @@ async def chat_stream(
             session_id=session.id,
             error=str(e),
         )
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/chat/interrupt", response_model=InterruptResponse)
+@limiter.limit(settings.RATE_LIMIT_ENDPOINTS["interrupt"][0])
+async def interrupt_chat(
+    request: Request,
+    session: Session = Depends(get_current_session),
+):
+    """Manually interrupt the active chat generation for the current session.
+
+    Args:
+        request: The FastAPI request object for rate limiting.
+        session: The current session from the auth token.
+
+    Returns:
+        InterruptResponse: Result of the interruption operation.
+    """
+    try:
+        logger.info(
+            "interrupt_chat_request_received",
+            session_id=session.id,
+            user_id=session.user_id,
+        )
+        interrupted = agent.interrupt_session(session.id)
+        return InterruptResponse(
+            success=True,
+            message="生成已成功中断" if interrupted else "当前会话已记录中断状态",
+            session_id=session.id,
+        )
+    except Exception as e:
+        logger.exception("interrupt_chat_request_failed", session_id=session.id, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/chat/resume")
+@limiter.limit(settings.RATE_LIMIT_ENDPOINTS["resume"][0])
+async def resume_chat(
+    request: Request,
+    resume_req: ResumeRequest,
+    session: Session = Depends(get_current_session),
+):
+    """Resume an interrupted chat session with streaming response.
+
+    Args:
+        request: The FastAPI request object for rate limiting.
+        resume_req: The resume request containing optional continuation prompt.
+        session: The current session from the auth token.
+
+    Returns:
+        StreamingResponse: A streaming response continuing the chat completion.
+    """
+    try:
+        logger.info(
+            "stream_resume_chat_request_received",
+            session_id=session.id,
+            prompt=resume_req.prompt,
+        )
+
+        async def event_generator():
+            current_task = asyncio.current_task()
+            if current_task is not None:
+                agent.register_task(session.id, current_task)
+            try:
+                with llm_stream_duration_seconds.labels(model=agent.llm_service.get_llm().get_name()).time():
+                    was_interrupted = False
+                    async for event in agent.get_stream_response(
+                        messages=[],
+                        session_id=session.id,
+                        user_id=str(session.user_id),
+                        username=session.username,
+                        is_resume=True,
+                        resume_prompt=resume_req.prompt,
+                    ):
+                        if await request.is_disconnected():
+                            logger.info("client_disconnected_aborting_resume_stream", session_id=session.id)
+                            break
+
+                        if isinstance(event, dict):
+                            if event.get("interrupted"):
+                                was_interrupted = True
+                            response = StreamResponse(
+                                content=event.get("content", ""),
+                                thinking=event.get("thinking", ""),
+                                status=event.get("status", ""),
+                                tool_name=event.get("tool_name", ""),
+                                tool_args=event.get("tool_args", ""),
+                                tool_output=event.get("tool_output", ""),
+                                interrupted=bool(event.get("interrupted", False)),
+                                interrupt_question=str(event.get("interrupt_question", "") or ""),
+                                manual_interrupted=bool(event.get("manual_interrupted", False)),
+                                done=False,
+                            )
+                        else:
+                            response = StreamResponse(content=str(event), done=False)
+                        yield f"data: {json.dumps(response.model_dump(mode='json'))}\n\n"
+
+                if not await request.is_disconnected():
+                    final_response = StreamResponse(
+                        content="",
+                        done=True,
+                        interrupted=was_interrupted,
+                    )
+                    yield f"data: {json.dumps(final_response.model_dump(mode='json'))}\n\n"
+
+            except asyncio.CancelledError:
+                logger.info("stream_resume_client_cancelled", session_id=session.id)
+                return
+            except Exception as e:
+                logger.exception("stream_resume_request_failed", session_id=session.id, error=str(e))
+                err_str = str(e)
+                error_response = StreamResponse(content=f"\n\n---\n❌ **恢复过程中断**: {err_str}", done=True)
+                yield f"data: {json.dumps(error_response.model_dump(mode='json'))}\n\n"
+            finally:
+                if current_task is not None:
+                    agent.unregister_task(session.id, current_task)
+
+        return StreamingResponse(event_generator(), media_type="text/event-stream")
+    except Exception as e:
+        logger.exception("stream_resume_failed", session_id=session.id, error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -209,6 +345,37 @@ async def get_session_messages(
         return ChatResponse(messages=messages)
     except Exception as e:
         logger.exception("get_messages_failed", session_id=session.id, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/suggested-questions", response_model=SuggestedQuestionsResponse)
+@limiter.limit(settings.RATE_LIMIT_ENDPOINTS["suggested_questions"][0])
+async def get_suggested_questions(
+    request: Request,
+    session: Session = Depends(get_current_session),
+):
+    """Generate AI suggested starter questions for the chat greeting.
+
+    Args:
+        request: The FastAPI request object for rate limiting.
+        session: The current session from the auth token.
+
+    Returns:
+        SuggestedQuestionsResponse: Recommended clickable starter questions.
+    """
+    try:
+        logger.info(
+            "suggested_questions_request_received",
+            session_id=session.id,
+            user_id=session.user_id,
+        )
+        questions = await generate_suggested_questions(
+            session_id=session.id,
+            user_id=str(session.user_id),
+        )
+        return SuggestedQuestionsResponse(questions=questions)
+    except Exception as e:
+        logger.exception("suggested_questions_request_failed", session_id=session.id, error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -1,21 +1,34 @@
 import { create } from 'zustand'
-import { fetchMessages, sendChat, streamChat } from '@/api/chatbot'
+import { fetchMessages, fetchSuggestedQuestions, interruptChat, resumeChatStream, sendChat, streamChat } from '@/api/chatbot'
 import { DEFAULT_GREETING } from '@/lib/format'
 import { useAuthStore } from '@/store/auth-store'
-import type { ChatMessage, MessageSegment, StreamPayload, StreamSegment } from '@/types'
+import type { ChatMessage, MessageSegment, StreamPayload, StreamSegment, SuggestedQuestion } from '@/types'
 
 interface ChatState {
   messages: ChatMessage[]
   busy: boolean
   chatError: string | null
   awaitingHuman: boolean
+  currentAbortController: AbortController | null
+  suggestedQuestions: SuggestedQuestion[]
+  suggestedQuestionsLoading: boolean
   setChatError: (message: string | null) => void
   setMessages: (messages: ChatMessage[]) => void
   appendMessage: (message: ChatMessage) => void
   replaceLastAssistant: (message: ChatMessage) => void
+  loadSuggestedQuestions: () => Promise<void>
+  clearSuggestedQuestions: () => void
   loadSessionMessages: () => Promise<void>
   startNewSession: () => Promise<void>
   sendMessage: (text: string) => Promise<void>
+  stopGeneration: () => Promise<void>
+  resumeChat: (customPrompt?: string) => Promise<void>
+}
+
+function isGreetingOnly(messages: ChatMessage[]) {
+  return messages.length === 1
+    && messages[0]?.role === 'assistant'
+    && messages[0]?.content === DEFAULT_GREETING
 }
 
 function completeOpenSegments(segments: StreamSegment[]) {
@@ -155,9 +168,6 @@ function appendContentSegment(segments: StreamSegment[], rawChunk: string, insid
 }
 
 function segmentsToMessage(segments: StreamSegment[]): Pick<ChatMessage, 'content' | 'thinking' | 'tool_calls' | 'segments'> {
-  // Do NOT complete open segments here — this runs on every stream token.
-  // Premature completion causes each thinking chunk to start a new block.
-
   const thinkParts = segments.filter(item => item.type === 'thinking' && item.content).map(item => item.content.trim())
   const textParts = segments.filter(item => item.type === 'text' && item.content).map(item => item.content.trim())
   const toolCallsList = segments
@@ -199,6 +209,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
   busy: false,
   chatError: null,
   awaitingHuman: false,
+  currentAbortController: null,
+  suggestedQuestions: [],
+  suggestedQuestionsLoading: false,
 
   setChatError(message) {
     set({ chatError: message })
@@ -208,8 +221,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const lastMsg = messages.at(-1)
     set({
       messages,
-      awaitingHuman: Boolean(lastMsg?.interrupted),
+      awaitingHuman: Boolean(lastMsg?.interrupted && !lastMsg?.manual_interrupted),
     })
+    if (isGreetingOnly(messages))
+      void get().loadSuggestedQuestions()
+    else
+      get().clearSuggestedQuestions()
   },
 
   appendMessage(message) {
@@ -226,28 +243,64 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ messages })
   },
 
+  clearSuggestedQuestions() {
+    set({ suggestedQuestions: [], suggestedQuestionsLoading: false })
+  },
+
+  async loadSuggestedQuestions() {
+    const sessionToken = useAuthStore.getState().sessionToken
+    if (!sessionToken) {
+      set({
+        suggestedQuestions: [],
+        suggestedQuestionsLoading: false,
+      })
+      return
+    }
+
+    set({ suggestedQuestionsLoading: true })
+    try {
+      const data = await fetchSuggestedQuestions(sessionToken)
+      const questions = data.questions || []
+      if (!isGreetingOnly(get().messages)) {
+        set({ suggestedQuestionsLoading: false })
+        return
+      }
+      set({
+        suggestedQuestions: questions,
+        suggestedQuestionsLoading: false,
+      })
+    }
+    catch {
+      if (!isGreetingOnly(get().messages)) {
+        set({ suggestedQuestionsLoading: false })
+        return
+      }
+      set({
+        suggestedQuestions: [],
+        suggestedQuestionsLoading: false,
+      })
+    }
+  },
+
   async loadSessionMessages() {
     const sessionToken = useAuthStore.getState().sessionToken
     if (!sessionToken) {
-      set({ messages: [{ role: 'assistant', content: DEFAULT_GREETING }], awaitingHuman: false })
+      get().setMessages([{ role: 'assistant', content: DEFAULT_GREETING }])
       return
     }
 
     try {
       const data = await fetchMessages(sessionToken)
       const msgs = data.messages || []
-      const lastMsg = msgs.at(-1)
-      const isAwaiting = Boolean(lastMsg?.interrupted)
-      set({
-        messages: msgs.length ? msgs : [{ role: 'assistant', content: DEFAULT_GREETING }],
-        awaitingHuman: isAwaiting,
-      })
+      get().setMessages(msgs.length ? msgs : [{ role: 'assistant', content: DEFAULT_GREETING }])
     }
     catch (error) {
       const message = error instanceof Error ? error.message : '加载历史记录失败'
       set({
         messages: [{ role: 'assistant', content: `⚠️ 加载历史记录失败: ${message}` }],
         awaitingHuman: false,
+        suggestedQuestions: [],
+        suggestedQuestionsLoading: false,
       })
     }
   },
@@ -260,11 +313,127 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
 
     await auth.createSession()
+    set({ chatError: null })
+    get().setMessages([{ role: 'assistant', content: DEFAULT_GREETING }])
+  },
+
+  async stopGeneration() {
+    const { currentAbortController, messages } = get()
+    if (currentAbortController) {
+      currentAbortController.abort()
+    }
+    const sessionToken = useAuthStore.getState().sessionToken
+    if (sessionToken) {
+      void interruptChat(sessionToken).catch(() => {})
+    }
+
+    const lastMsg = messages.at(-1)
+    if (lastMsg && lastMsg.role === 'assistant') {
+      get().replaceLastAssistant({
+        ...lastMsg,
+        interrupted: true,
+        manual_interrupted: true,
+        interrupt_question: '用户手动中断',
+      })
+    }
+
     set({
-      messages: [{ role: 'assistant', content: DEFAULT_GREETING }],
-      chatError: null,
+      busy: false,
+      currentAbortController: null,
       awaitingHuman: false,
     })
+  },
+
+  async resumeChat(customPrompt?: string) {
+    if (get().busy)
+      return
+
+    const auth = useAuthStore.getState()
+    const sessionToken = auth.sessionToken
+    if (!sessionToken) {
+      set({ chatError: '未找到有效会话，无法恢复。' })
+      return
+    }
+
+    const abortController = new AbortController()
+    set({
+      busy: true,
+      chatError: null,
+      awaitingHuman: false,
+      currentAbortController: abortController,
+    })
+
+    const streamSegments: StreamSegment[] = []
+    const insideThinkRef = { current: false }
+    let interrupted = false
+    let interruptQuestion = ''
+    let manualInterrupted = false
+
+    const currentMessages = get().messages
+    const lastAssistant = currentMessages.filter(m => m.role === 'assistant').at(-1)
+    if (lastAssistant?.segments && lastAssistant.segments.length > 0) {
+      lastAssistant.segments.forEach((seg) => {
+        streamSegments.push({
+          type: seg.type,
+          content: seg.content || '',
+          completed: true,
+          tool_name: seg.tool_name,
+          tool_args: seg.tool_args,
+          tool_output: seg.tool_output,
+          text: seg.status,
+        })
+      })
+    }
+
+    const updateStreamingAssistant = () => {
+      const result = segmentsToMessage(streamSegments)
+      get().replaceLastAssistant({
+        role: 'assistant',
+        content: interrupted ? (interruptQuestion || result.content) : result.content,
+        thinking: result.thinking,
+        tool_calls: result.tool_calls,
+        segments: result.segments,
+        interrupted,
+        interrupt_question: interruptQuestion,
+        manual_interrupted: manualInterrupted,
+      })
+    }
+
+    try {
+      for await (const payload of resumeChatStream(sessionToken, customPrompt || '', abortController.signal)) {
+        if (payload.interrupted) {
+          interrupted = true
+          manualInterrupted = Boolean(payload.manual_interrupted)
+          interruptQuestion = payload.interrupt_question || payload.content || interruptQuestion
+        }
+        applyStreamPayload(streamSegments, payload, insideThinkRef)
+        updateStreamingAssistant()
+      }
+
+      completeOpenSegments(streamSegments)
+      updateStreamingAssistant()
+
+      if (interrupted && !manualInterrupted)
+        set({ awaitingHuman: true })
+
+      window.setTimeout(() => {
+        void auth.loadSessions()
+      }, 1200)
+    }
+    catch (error) {
+      if (abortController.signal.aborted) {
+        return
+      }
+      const message = error instanceof Error ? error.message : '恢复失败'
+      get().replaceLastAssistant({
+        ...(lastAssistant || { role: 'assistant', content: '' }),
+        content: `${lastAssistant?.content || ''}\n\n❌ **恢复失败**: ${message}`,
+      })
+      set({ chatError: message, awaitingHuman: false })
+    }
+    finally {
+      set({ busy: false, currentAbortController: null })
+    }
   },
 
   async sendMessage(text) {
@@ -279,15 +448,79 @@ export const useChatStore = create<ChatState>((set, get) => ({
       return
     }
 
-    set({ busy: true, chatError: null, awaitingHuman: false })
-    get().appendMessage({ role: 'user', content })
-    get().appendMessage({ role: 'assistant', content: '', segments: [] })
+    get().clearSuggestedQuestions()
 
+    const isResuming = get().awaitingHuman
     const streamSegments: StreamSegment[] = []
     const insideThinkRef = { current: false }
     let hasReceivedAnyToken = false
     let interrupted = false
     let interruptQuestion = ''
+    let manualInterrupted = false
+
+    const abortController = new AbortController()
+
+    if (isResuming) {
+      const currentMessages = get().messages
+      const lastAssistant = currentMessages.filter(m => m.role === 'assistant').at(-1)
+      if (lastAssistant?.segments && lastAssistant.segments.length > 0) {
+        lastAssistant.segments.forEach((seg) => {
+          if (seg.type === 'tool_call' && seg.tool_name === 'ask_human' && !seg.tool_output) {
+            streamSegments.push({
+              type: 'tool_call',
+              content: '',
+              text: '✅ 已完成决策确认',
+              completed: true,
+              tool_name: 'ask_human',
+              tool_args: seg.tool_args,
+              tool_output: content,
+            })
+          }
+          else {
+            streamSegments.push({
+              type: seg.type,
+              content: seg.content || '',
+              completed: true,
+              tool_name: seg.tool_name,
+              tool_args: seg.tool_args,
+              tool_output: seg.tool_output,
+              text: seg.status,
+            })
+          }
+        })
+      }
+
+      const hasInterruptSeg = streamSegments.some(s => s.tool_name === 'ask_human')
+      if (!hasInterruptSeg && lastAssistant?.interrupted) {
+        streamSegments.push({
+          type: 'tool_call',
+          content: '',
+          text: '✅ 已完成决策确认',
+          completed: true,
+          tool_name: 'ask_human',
+          tool_args: lastAssistant.interrupt_question || lastAssistant.content || '',
+          tool_output: content,
+        })
+      }
+
+      set({ busy: true, chatError: null, awaitingHuman: false, currentAbortController: abortController })
+      const initResult = segmentsToMessage(streamSegments)
+      get().replaceLastAssistant({
+        role: 'assistant',
+        content: initResult.content,
+        thinking: initResult.thinking,
+        tool_calls: initResult.tool_calls,
+        segments: initResult.segments,
+        interrupted: false,
+        interrupt_question: '',
+        manual_interrupted: false,
+      })
+    }
+    else {
+      set({ busy: true, chatError: null, awaitingHuman: false, currentAbortController: abortController })
+      get().appendMessage({ role: 'user', content })
+      get().appendMessage({ role: 'assistant', content: '', segments: [] })
+    }
 
     const updateStreamingAssistant = () => {
       const result = segmentsToMessage(streamSegments)
@@ -299,6 +532,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         segments: result.segments,
         interrupted,
         interrupt_question: interruptQuestion,
+        manual_interrupted: manualInterrupted,
       })
     }
 
@@ -314,11 +548,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
         sessionToken = createdToken
       }
 
-      for await (const payload of streamChat(sessionToken, content)) {
+      for await (const payload of streamChat(sessionToken, content, abortController.signal)) {
         if (payload.thinking || payload.content)
           hasReceivedAnyToken = true
         if (payload.interrupted) {
           interrupted = true
+          manualInterrupted = Boolean(payload.manual_interrupted)
           interruptQuestion = payload.interrupt_question || payload.content || interruptQuestion
         }
         applyStreamPayload(streamSegments, payload, insideThinkRef)
@@ -335,12 +570,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const lastMsg = assistantMessages.at(-1)
         if (lastMsg) {
           interrupted = Boolean(lastMsg.interrupted)
+          manualInterrupted = Boolean(lastMsg.manual_interrupted)
           interruptQuestion = lastMsg.interrupt_question || lastMsg.content || ''
           get().replaceLastAssistant(lastMsg)
         }
       }
 
-      if (interrupted)
+      if (interrupted && !manualInterrupted)
         set({ awaitingHuman: true })
 
       window.setTimeout(() => {
@@ -348,14 +584,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }, 1200)
     }
     catch (error) {
+      if (abortController.signal.aborted) {
+        return
+      }
       const message = error instanceof Error ? error.message : '发送失败'
       get().replaceLastAssistant({ role: 'assistant', content: `❌ **出错了**: ${message}` })
       set({ chatError: message, awaitingHuman: false })
     }
     finally {
-      set({ busy: false })
+      set({ busy: false, currentAbortController: null })
     }
   },
 }))
 
 export type { StreamSegment }
+

@@ -1,10 +1,11 @@
-Generate a short title for a conversation based on the user's first message.
+根据学生的首条数学提问或对话，生成一个精炼的会话中文标题。
 
-Rules:
-- 3 to 6 words maximum
-- Match the language of the user's message
-- No quotes, no trailing punctuation, no prefixes like "Title:" or "Subject:"
-- Capture the specific topic, not a generic description
+规则：
+- **全程中文思考**：内部思考与推理必须全程使用中文
+- 3 到 8 个字，精炼准确
+- 必须使用中文，紧扣数学主题（如“一元二次方程求解”、“勾股定理应用”）
+- 不要包含引号、书名号、标点符号或“标题:”、“主题:”等前缀
+- 准确捕捉具体知识点，避免过于宽泛的泛称
 
-User message:
+学生首条消息：
 {user_message}

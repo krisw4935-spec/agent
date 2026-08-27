@@ -227,12 +227,15 @@ class Settings:
             "chat": ["30 per minute"],
             "chat_stream": ["20 per minute"],
             "messages": ["50 per minute"],
+            "suggested_questions": ["20 per minute"],
             "register": ["10 per hour"],
             "login": ["20 per minute"],
             "guest": ["60 per minute"],
             "root": ["10 per minute"],
             "health": ["20 per minute"],
             "evolution": ["60 per minute"],
+            "interrupt": ["30 per minute"],
+            "resume": ["30 per minute"],
         }
 
         # Update rate limit endpoints from environment variables

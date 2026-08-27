@@ -4,12 +4,10 @@ import {
   Button,
   Empty,
   Spin,
-  Tag,
   TextArea,
   Typography,
 } from '@douyinfe/semi-ui-19'
 import clsx from 'clsx'
-import { QUICK_PROMPTS } from '@/lib/format'
 import { useAuthStore } from '@/store/auth-store'
 import { useChatStore } from '@/store/chat-store'
 import { MessageFeed } from '@/components/MessageFeed'
@@ -24,12 +22,16 @@ export function ChatPanel() {
   const chatError = useChatStore(state => state.chatError)
   const awaitingHuman = useChatStore(state => state.awaitingHuman)
   const sendMessage = useChatStore(state => state.sendMessage)
+  const stopGeneration = useChatStore(state => state.stopGeneration)
+  const resumeChat = useChatStore(state => state.resumeChat)
+  const messages = useChatStore(state => state.messages)
   const userToken = useAuthStore(state => state.userToken)
   const authModalOpen = useAuthStore(state => state.authModalOpen)
   const setAuthModalOpen = useAuthStore(state => state.setAuthModalOpen)
   const [input, setInput] = useState('')
 
   const isGuest = !userToken
+  const lastMsg = messages.at(-1)
 
   const handleSubmit = useCallback(() => {
     const value = input.trim()
@@ -108,29 +110,29 @@ export function ChatPanel() {
                 )
                 : null}
 
-              <div className="flex flex-wrap gap-2 mb-3">
-                {QUICK_PROMPTS.map(item => (
-                  <Tag
-                    key={item.label}
-                    color="green"
-                    type="ghost"
-                    size="large"
-                    className={clsx(
-                      isGuest || busy ? 'cursor-not-allowed opacity-55' : 'cursor-pointer opacity-100',
+              {lastMsg?.manual_interrupted && !busy && !isGuest
+                ? (
+                  <Banner
+                    type="info"
+                    closeIcon={null}
+                    description={(
+                      <div className="flex items-center justify-between gap-2">
+                        <span>上一条回答已手动中断，你可以直接在下方输入新问题，或一键恢复生成。</span>
+                        <Button
+                          theme="solid"
+                          type="warning"
+                          size="small"
+                          icon={<span className="i-lucide-play w-[14px] h-[14px]" aria-hidden="true" />}
+                          onClick={() => void resumeChat()}
+                        >
+                          恢复生成
+                        </Button>
+                      </div>
                     )}
-                    onClick={() => {
-                      if (isGuest) {
-                        setAuthModalOpen(true)
-                        return
-                      }
-                      if (!busy)
-                        void sendMessage(item.prompt)
-                    }}
-                  >
-                    {item.label}
-                  </Tag>
-                ))}
-              </div>
+                    className="!mb-3"
+                  />
+                )
+                : null}
 
               <div className="composer-row flex gap-3 items-end">
                 <TextArea
@@ -142,7 +144,9 @@ export function ChatPanel() {
                       ? '请先登录后再输入数学问题...'
                       : awaitingHuman
                         ? '回复上方确认问题…'
-                        : '输入数学问题（如：讲解三角函数并画出图像、求导、解方程）...'
+                        : lastMsg?.manual_interrupted
+                          ? '输入补充内容继续对话，或点击上方恢复生成...'
+                          : '输入数学问题（如：讲解三角函数并画出图像、求导、解方程）...'
                   }
                   maxCount={3000}
                   maxLength={3000}
@@ -154,17 +158,30 @@ export function ChatPanel() {
                     }
                   }}
                 />
-                <Button
-                  theme="solid"
-                  type="primary"
-                  icon={<span className="i-lucide-send w-[16px] h-[16px]" aria-hidden="true" />}
-                  loading={busy}
-                  disabled={busy || isGuest || !input.trim()}
-                  onClick={handleSubmit}
-                  aria-label="发送消息"
-                >
-                  {busy ? '发送中' : awaitingHuman ? '确认回复' : '发送'}
-                </Button>
+                {busy
+                  ? (
+                    <Button
+                      theme="solid"
+                      type="danger"
+                      icon={<span className="i-lucide-square w-[14px] h-[14px]" aria-hidden="true" />}
+                      onClick={() => void stopGeneration()}
+                      aria-label="停止生成"
+                    >
+                      中断
+                    </Button>
+                  )
+                  : (
+                    <Button
+                      theme="solid"
+                      type="primary"
+                      icon={<span className="i-lucide-send w-[16px] h-[16px]" aria-hidden="true" />}
+                      disabled={isGuest || !input.trim()}
+                      onClick={handleSubmit}
+                      aria-label="发送消息"
+                    >
+                      {awaitingHuman ? '确认回复' : '发送'}
+                    </Button>
+                  )}
               </div>
 
               {chatError
@@ -206,4 +223,3 @@ export function ChatPanel() {
     </>
   )
 }
-

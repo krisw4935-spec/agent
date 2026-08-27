@@ -17,6 +17,53 @@ def get_friendly_tool_name(tool_name: str) -> str:
     return FRIENDLY_TOOL_NAMES.get(tool_name, tool_name or "数学工具演算")
 
 
+CONTINUATION_KEYWORDS: tuple[str, ...] = (
+    "请继续",
+    "继续",
+    "接着说",
+    "接着讲",
+    "继续讲",
+    "往下说",
+    "往下写",
+    "接着推导",
+    "继续回答",
+    "继续写",
+    "请接着",
+    "继续推导",
+    "继续算",
+    "然后呢",
+    "接着呢",
+    "继续做",
+    "继续解答",
+)
+
+CONTINUATION_PREFIXES: tuple[str, ...] = (
+    "【继续生成请求】",
+    "【继续】",
+    "请紧接着上一轮",
+)
+
+
+def is_continuation_prompt(text: str) -> bool:
+    """Check whether a user prompt represents a continuation/resume instruction."""
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return True
+
+    for prefix in CONTINUATION_PREFIXES:
+        if cleaned.startswith(prefix):
+            return True
+
+    normalized = cleaned.rstrip("。？！，,.!?~ ")
+    if normalized in CONTINUATION_KEYWORDS:
+        return True
+
+    if len(normalized) <= 8 and any(kw in normalized for kw in ("继续", "接着", "往下")):
+        return True
+
+    return False
+
+
 def get_last_user_content(messages: list) -> str:
     """Extract the most recent user/human message text from graph state."""
     for msg in reversed(messages):
@@ -27,6 +74,30 @@ def get_last_user_content(messages: list) -> str:
         if isinstance(msg, dict) and (msg.get("role") in ("user", "human") or msg.get("type") in ("user", "human")):
             return str(msg.get("content", ""))
     return ""
+
+
+def get_substantive_user_content(messages: list) -> str:
+    """Extract the most recent substantive (non-continuation) user question from history."""
+    for msg in reversed(messages):
+        content = ""
+        if isinstance(msg, Message) and msg.role == "user":
+            content = msg.content
+        elif isinstance(msg, BaseMessage) and (msg.type == "human" or getattr(msg, "role", None) == "user"):
+            content = extract_text_content(msg.content)
+        elif isinstance(msg, dict) and (msg.get("role") in ("user", "human") or msg.get("type") in ("user", "human")):
+            content = str(msg.get("content", ""))
+
+        if content and not is_continuation_prompt(content):
+            return content
+    return ""
+
+
+def format_context_aware_input(current_input: str, substantive_input: str) -> str:
+    """Format input argument with previous context if current message is a continuation prompt."""
+    if is_continuation_prompt(current_input) and substantive_input and substantive_input != current_input:
+        return f"{current_input}\n\n📌【关联上轮主题与上下文】:\n{substantive_input}"
+    return current_input
+
 
 
 def normalize_messages(messages: list) -> list[Message]:
