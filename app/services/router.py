@@ -40,6 +40,11 @@ def _cosine_similarity(ngrams_a: set[str], ngrams_b: set[str]) -> float:
     return intersection_size / math.sqrt(len(ngrams_a) * len(ngrams_b))
 
 
+def _find_matched_keywords(text: str, keywords: tuple[str, ...]) -> list[str]:
+    """Return keyword hits in declaration order for routing explainability."""
+    return [keyword for keyword in keywords if keyword in text]
+
+
 class RouterService:
     """Service to classify incoming mathematical tutor queries quickly and deterministically."""
 
@@ -183,7 +188,7 @@ class RouterService:
         if not raw_text:
             return RouterDecision(
                 intent=MathIntent.SOLVE,
-                reasoning="学生输入为空，默认进入综合求解与答疑模式 (solve)。",
+                reasoning="【匹配方式：默认降级】学生输入为空，默认进入综合求解与答疑模式 (solve)。",
             )
 
         lower_text = raw_text.lower()
@@ -195,37 +200,56 @@ class RouterService:
                 logger.info("router_explicit_prefix_matched", prefix=prefix, intent=intent_label)
                 return RouterDecision(
                     intent=intent,
-                    reasoning=f"命中显式意图指令 '{prefix}'，直接规划为【{intent_label}】模式。",
+                    reasoning=(
+                        f"【匹配方式：显式前缀】命中意图指令 '{prefix}'，"
+                        f"直接规划为【{intent_label}】模式。"
+                    ),
                 )
 
         # --- Level 1.2: Heuristic Feature Rules ---
-        if any(h in lower_text for h in self.VERIFY_KEYWORDS):
-            logger.info("router_heuristic_matched", rule="verify", intent="verify")
+        verify_hits = _find_matched_keywords(lower_text, self.VERIFY_KEYWORDS)
+        if verify_hits:
+            logger.info("router_heuristic_matched", rule="verify", intent="verify", keywords=verify_hits)
             return RouterDecision(
                 intent=MathIntent.VERIFY,
-                reasoning="检测到学生提交解法或请求检查批改的特征词，规划为【解题批改 (verify)】模式。",
+                reasoning=(
+                    f"【匹配方式：关键字规则】命中特征词「{'、'.join(verify_hits[:3])}」，"
+                    "检测到学生提交解法或请求检查批改，规划为【解题批改 (verify)】模式。"
+                ),
             )
 
-        if any(h in lower_text for h in self.PRACTICE_KEYWORDS):
-            logger.info("router_heuristic_matched", rule="practice", intent="practice")
+        practice_hits = _find_matched_keywords(lower_text, self.PRACTICE_KEYWORDS)
+        if practice_hits:
+            logger.info("router_heuristic_matched", rule="practice", intent="practice", keywords=practice_hits)
             return RouterDecision(
                 intent=MathIntent.PRACTICE,
-                reasoning="检测到出题/做题/练习请求的特征词，规划为【靶向练习 (practice)】模式。",
+                reasoning=(
+                    f"【匹配方式：关键字规则】命中特征词「{'、'.join(practice_hits[:3])}」，"
+                    "检测到出题/做题/练习请求，规划为【靶向练习 (practice)】模式。"
+                ),
             )
 
         # Explain check: Ensure it's not a solve statement like "解释一下这道题的求解过程: 解方程..."
-        if any(h in lower_text for h in self.EXPLAIN_KEYWORDS) and "解方程" not in lower_text:
-            logger.info("router_heuristic_matched", rule="explain", intent="explain")
+        explain_hits = _find_matched_keywords(lower_text, self.EXPLAIN_KEYWORDS)
+        if explain_hits and "解方程" not in lower_text:
+            logger.info("router_heuristic_matched", rule="explain", intent="explain", keywords=explain_hits)
             return RouterDecision(
                 intent=MathIntent.EXPLAIN,
-                reasoning="检测到概念探究、定理含义或原理询问特征，规划为【概念精讲 (explain)】模式。",
+                reasoning=(
+                    f"【匹配方式：关键字规则】命中特征词「{'、'.join(explain_hits[:3])}」，"
+                    "检测到概念探究、定理含义或原理询问，规划为【概念精讲 (explain)】模式。"
+                ),
             )
 
-        if any(h in lower_text for h in self.SOLVE_KEYWORDS):
-            logger.info("router_heuristic_matched", rule="solve", intent="solve")
+        solve_hits = _find_matched_keywords(lower_text, self.SOLVE_KEYWORDS)
+        if solve_hits:
+            logger.info("router_heuristic_matched", rule="solve", intent="solve", keywords=solve_hits)
             return RouterDecision(
                 intent=MathIntent.SOLVE,
-                reasoning="检测到具体的数学题目、算式或求解要求，规划为【综合求解 (solve)】模式。",
+                reasoning=(
+                    f"【匹配方式：关键字规则】命中特征词「{'、'.join(solve_hits[:3])}」，"
+                    "检测到具体数学题目、算式或求解要求，规划为【综合求解 (solve)】模式。"
+                ),
             )
 
         # --- Level 2: Semantic Similarity via Anchor Overlap ---
@@ -251,8 +275,9 @@ class RouterService:
             return RouterDecision(
                 intent=best_intent,
                 reasoning=(
-                    f"语义相似度匹配成功 (置信度 {best_score:.2f} >= {self.similarity_threshold:.2f})，"
-                    f"与典型样本「{best_anchor_text[:16]}...」语义相符，规划为【{best_intent.value}】模式。"
+                    f"【匹配方式：字符 n-gram 语义向量】"
+                    f"与锚点样本余弦相似度 {best_score:.2f}（阈值 {self.similarity_threshold:.2f}），"
+                    f"最近邻样本「{best_anchor_text[:16]}...」，规划为【{best_intent.value}】模式。"
                 ),
             )
 
@@ -260,7 +285,10 @@ class RouterService:
         logger.info("router_fallback_to_solve", message_len=len(raw_text))
         return RouterDecision(
             intent=MathIntent.SOLVE,
-            reasoning="未检测到特殊前缀或偏向性规则，安全降级为通用性最高的【综合求解 (solve)】模式。",
+            reasoning=(
+                "【匹配方式：默认降级】未命中显式前缀、关键字规则或语义向量阈值，"
+                "安全降级为通用性最高的【综合求解 (solve)】模式。"
+            ),
         )
 
 

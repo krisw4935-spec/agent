@@ -41,6 +41,24 @@ load_dotenv()
 langfuse_init()
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
+_WEB_DIST_DIR = Path(__file__).resolve().parents[1] / "web" / "dist"
+
+
+def _resolve_ui_dir() -> Path:
+    """Prefer Rsbuild output when present, otherwise fall back to legacy static UI."""
+    if (_WEB_DIST_DIR / "index.html").exists():
+        return _WEB_DIST_DIR
+    return _STATIC_DIR
+
+
+def _mount_frontend_static(app: FastAPI) -> None:
+    """Mount frontend build assets or legacy static UI."""
+    ui_dir = _resolve_ui_dir()
+    if ui_dir == _WEB_DIST_DIR:
+        app.mount("/static", StaticFiles(directory=str(_WEB_DIST_DIR / "static")), name="static")
+        return
+
+    app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 
 @asynccontextmanager
@@ -173,7 +191,7 @@ app.add_middleware(
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
 # Simple chat UI (static assets + HTML page)
-app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+_mount_frontend_static(app)
 
 
 @app.get("/")
@@ -182,7 +200,7 @@ async def root(request: Request):
     """Serve the Math Teacher chat UI."""
     logger.info("root_endpoint_called")
     return FileResponse(
-        _STATIC_DIR / "index.html",
+        _resolve_ui_dir() / "index.html",
         headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
     )
 
@@ -192,7 +210,7 @@ async def root(request: Request):
 async def ui(request: Request):
     """Alias for the chat UI."""
     return FileResponse(
-        _STATIC_DIR / "index.html",
+        _resolve_ui_dir() / "index.html",
         headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
     )
 

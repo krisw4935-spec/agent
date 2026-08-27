@@ -18,6 +18,9 @@ wheels/
 
 # Misc
 *.ipynb
+node_modules/
+web/node_modules/
+web/dist/
 
 # Reports
 evals/reports/

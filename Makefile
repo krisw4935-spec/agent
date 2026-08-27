@@ -36,6 +36,19 @@ install:
 # Server
 # ---------------------------------------------------------------------------
 dev:
+	@if [ ! -d web/node_modules ]; then \
+		echo "Installing frontend dependencies..."; \
+		cd web && pnpm install; \
+	fi
+	@bash -c '\
+		trap "kill 0" EXIT INT TERM; \
+		printf "\n  Backend API:  http://localhost:8000\n  Frontend UI:  http://localhost:5173  (open this)\n\n"; \
+		source scripts/set_env.sh $(ENV) && uv run uvicorn app.main:app --reload --port 8000 & \
+		cd web && pnpm exec rsbuild dev & \
+		wait \
+	'
+
+dev-api:
 	@$(call run_with_env,uv run uvicorn app.main:app --reload --port 8000)
 
 staging:
@@ -85,6 +98,24 @@ eval-regression-agent:
 
 eval-regression-cases:
 	@$(call run_with_env,uv run --group test python -m evals.run_regression --mode api --cases-only)
+
+# ---------------------------------------------------------------------------
+# Frontend (Rsbuild + React)
+# ---------------------------------------------------------------------------
+frontend-install:
+	cd web && pnpm install
+
+frontend-dev:
+	cd web && pnpm exec rsbuild dev
+
+frontend-build:
+	cd web && pnpm build
+
+frontend-typecheck:
+	cd web && pnpm typecheck
+
+frontend-lint:
+	cd web && pnpm lint
 
 # ---------------------------------------------------------------------------
 # Code quality
@@ -188,9 +219,17 @@ help:
 	@echo "  install              Install deps, set up pre-commit hooks"
 	@echo ""
 	@echo "Server:"
-	@echo "  dev                  Dev server with hot reload (port 8000)"
+	@echo "  dev                  Start backend (8000) + frontend (5173); open frontend URL"
+	@echo "  dev-api              Backend only with hot reload (port 8000)"
 	@echo "  staging              Staging server"
 	@echo "  prod                 Production server"
+	@echo ""
+	@echo "Frontend:"
+	@echo "  frontend-install     Install web/ dependencies (pnpm)"
+	@echo "  frontend-dev         Start Rsbuild dev server (port 5173)"
+	@echo "  frontend-build       Build web/ to web/dist"
+	@echo "  frontend-typecheck   Typecheck web/ (tsc)"
+	@echo "  frontend-lint        Lint web/"
 	@echo ""
 	@echo "Database:"
 	@echo "  migrate              Run migrations to latest (default ENV=development)"
@@ -236,7 +275,8 @@ help:
 	@echo "Misc:"
 	@echo "  clean                Remove .venv, __pycache__, .pytest_cache"
 
-.PHONY: install dev staging prod _serve \
+.PHONY: install dev dev-api staging prod _serve \
+        frontend-install frontend-dev frontend-build frontend-typecheck frontend-lint \
         migrate migration migrate-downgrade migrate-history \
         eval eval-quick eval-no-report eval-regression eval-regression-agent eval-regression-cases \
         lint format typecheck check pre-commit pre-commit-update \

@@ -78,15 +78,15 @@ def test_hierarchical_hybrid_router_explicit_prefixes():
 
     d1 = router_service.route("[verify] 这是我的解法：x^2=4 得 x=2")
     assert d1.intent == MathIntent.VERIFY
-    assert "显式意图指令" in d1.reasoning
+    assert "显式前缀" in d1.reasoning
 
     d2 = router_service.route("【概念讲解】请问什么是矩阵的秩？")
     assert d2.intent == MathIntent.EXPLAIN
-    assert "显式意图指令" in d2.reasoning
+    assert "显式前缀" in d2.reasoning
 
     d3 = router_service.route("/practice 给我来两道立体几何题目")
     assert d3.intent == MathIntent.PRACTICE
-    assert "显式意图指令" in d3.reasoning
+    assert "显式前缀" in d3.reasoning
 
 
 def test_hierarchical_hybrid_router_rules():
@@ -104,6 +104,8 @@ def test_hierarchical_hybrid_router_rules():
     # Explain rule
     de = router_service.route("什么是泰勒展开公式，它的几何意义是什么？")
     assert de.intent == MathIntent.EXPLAIN
+    assert "关键字规则" in de.reasoning
+    assert "什么是" in de.reasoning
 
     # Solve rule
     ds = router_service.route("已知函数 f(x) = x^3 - 3x + 1，求解函数的单调递增区间")

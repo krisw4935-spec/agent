@@ -1,0 +1,41 @@
+{
+  "name": "math-teacher-web",
+  "type": "module",
+  "version": "2.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "rsbuild dev",
+    "build": "rsbuild build",
+    "preview": "rsbuild preview",
+    "typecheck": "tsc -b tsconfig.app.json",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@douyinfe/semi-icons": "^2.102.0",
+    "@douyinfe/semi-ui-19": "^2.102.0",
+    "clsx": "^2.1.1",
+    "dompurify": "^3.1.6",
+    "katex": "^0.16.11",
+    "marked": "^12.0.2",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zustand": "^5.0.3"
+  },
+  "devDependencies": {
+    "@antfu/eslint-config": "^4.12.0",
+    "@rsbuild/core": "^1.2.19",
+    "@rsbuild/plugin-react": "^1.1.1",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "@unocss/eslint-plugin": "^66.1.1",
+    "@unocss/postcss": "^66.1.1",
+    "@unocss/reset": "^66.1.1",
+    "autoprefixer": "^10.4.21",
+    "code-inspector-plugin": "^1.6.6",
+    "eslint": "^9.22.0",
+    "eslint-plugin-format": "^1.0.1",
+    "eslint-plugin-react-refresh": "^0.4.19",
+    "typescript": "^5.8.2",
+    "unocss": "^66.1.1"
+  }
+}
