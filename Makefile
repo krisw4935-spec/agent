@@ -132,7 +132,7 @@ pre-commit-update:
 	uv run pre-commit autoupdate
 
 # ---------------------------------------------------------------------------
-# Docker — single service (API + DB)
+# Docker — single image (API + React UI) + database
 # ---------------------------------------------------------------------------
 docker-build:
 	$(call check_env)
@@ -212,7 +212,7 @@ help:
 	@echo "  install              Install deps, set up pre-commit hooks"
 	@echo ""
 	@echo "Server:"
-	@echo "  dev                  Start backend (8000) + frontend (5173); open frontend URL"
+	@echo "  dev                  Start backend (8000) + frontend dev server (5173)"
 	@echo "  dev-stop             Stop local dev servers on ports 8000 and 5173"
 	@echo "  dev-api              Backend only with hot reload (port 8000)"
 	@echo "  staging              Staging server"
@@ -247,9 +247,9 @@ help:
 	@echo "  pre-commit           Run all pre-commit hooks"
 	@echo "  pre-commit-update    Update pre-commit hook versions"
 	@echo ""
-	@echo "Docker (API + DB):"
-	@echo "  docker-build         Build Docker image"
-	@echo "  docker-up            Start API + DB containers"
+	@echo "Docker (API + React UI + DB):"
+	@echo "  docker-build         Build bundled API + React UI image"
+	@echo "  docker-up            Build and start bundled app + DB containers"
 	@echo "  docker-down          Stop containers"
 	@echo "  docker-logs          Tail container logs"
 	@echo "  docker-migrate       Run migrations inside the app container"

@@ -112,10 +112,13 @@ This works as a drop-in replacement anywhere `ChatOpenAI` is used in your LangGr
 git clone <repo-url> my-agent && cd my-agent
 cp .env.example .env.development   # fill in your keys
 make install
-make docker-up                     # starts API + PostgreSQL
+make docker-up                     # builds/starts bundled UI + API + PostgreSQL
 ```
 
-Open [http://localhost:8000/docs](http://localhost:8000/docs) to see the interactive API.
+Open [http://localhost:8000/](http://localhost:8000/) for the React UI or
+[http://localhost:8000/docs](http://localhost:8000/docs) for the interactive API.
+The Docker image contains both the compiled frontend and FastAPI backend, so no
+separate frontend server is needed.
 
 ### 数学动画
 

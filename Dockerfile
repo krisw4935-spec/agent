@@ -1,9 +1,7 @@
-FROM python:3.13.2-slim
+FROM python:3.13.2-slim AS backend-base
 
-# Set working directory
 WORKDIR /app
 
-# Set non-sensitive environment variables
 ARG APP_ENV=production
 
 ENV APP_ENV=${APP_ENV} \
@@ -14,7 +12,7 @@ ENV APP_ENV=${APP_ENV} \
     PIP_DISABLE_PIP_VERSION_CHECK=on \
     PIP_DEFAULT_TIMEOUT=100
 
-# Install system dependencies
+# Install backend system dependencies before copying application source.
 RUN apt-get update && apt-get install -y \
     build-essential \
     libpq-dev \
@@ -24,13 +22,40 @@ RUN apt-get update && apt-get install -y \
     && pip install uv \
     && rm -rf /var/lib/apt/lists/*
 
-# Install locked dependencies first (cached unless pyproject.toml / uv.lock change)
+# Install locked backend dependencies first (cached unless pyproject.toml /
+# uv.lock change).
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-install-project
 
-# Copy the application and install the project itself against the locked deps
+
+FROM node:22-bookworm-slim AS frontend-builder
+
+WORKDIR /web
+ENV CI=true
+
+# Install the package manager used by the locked frontend dependencies.
+RUN corepack enable
+
+# Fetch frontend dependencies before copying source files for better caching.
+COPY web/package.json web/pnpm-lock.yaml ./
+RUN pnpm fetch
+
+# Link the fetched dependencies after copying source files. Lifecycle scripts
+# are not needed to compile the static UI and are disabled so pnpm's
+# non-interactive build policy cannot block the container build.
+COPY web/ ./
+RUN pnpm install --offline --frozen-lockfile --ignore-scripts && pnpm build
+
+
+FROM backend-base AS runtime
+
+# Copy the application and install the project itself against the locked deps.
 COPY . .
 RUN uv sync --frozen
+
+# Include the compiled React application in the API image. FastAPI serves this
+# directory from the same origin and port as the API.
+COPY --from=frontend-builder /web/dist /app/web/dist
 
 # Make entrypoint script executable - do this before changing user
 RUN chmod +x /app/scripts/docker-entrypoint.sh
