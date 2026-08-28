@@ -96,6 +96,7 @@ async def generate_suggested_questions(
             config=run_config,
             max_tokens=1024,
             temperature=0.95,
+            extra_body={"thinking": {"type": "disabled"}},
         )
     questions = list(result.questions)[:4]
     logger.info(

@@ -68,27 +68,27 @@ class StorageService:
             logger.exception("minio_bucket_verification_failed", bucket=bucket_name, error=str(e))
             raise RuntimeError("MinIO bucket verification failed") from e
 
-    def upload_image_bytes_sync(
+    def upload_bytes_sync(
         self,
-        image_bytes: bytes,
+        data: bytes,
         filename: Optional[str] = None,
-        content_type: str = "image/png",
+        content_type: str = "application/octet-stream",
     ) -> str:
-        """Upload raw image bytes to MinIO and return a public image URL."""
+        """Upload raw bytes to MinIO and return a public URL."""
         if not filename:
-            filename = f"math_{uuid4().hex[:12]}.png"
+            filename = f"math_{uuid4().hex[:12]}.bin"
 
         bucket_name = settings.MINIO_BUCKET
         client = self._get_client()
 
         try:
             self._ensure_bucket(client, bucket_name)
-            data_stream = io.BytesIO(image_bytes)
+            data_stream = io.BytesIO(data)
             client.put_object(
                 bucket_name,
                 filename,
                 data_stream,
-                length=len(image_bytes),
+                length=len(data),
                 content_type=content_type,
             )
 
@@ -103,13 +103,40 @@ class StorageService:
                 "image_uploaded_to_minio",
                 filename=filename,
                 bucket=bucket_name,
-                size_bytes=len(image_bytes),
+                size_bytes=len(data),
                 url=url,
             )
             return url
         except (S3Error, Exception) as e:
             logger.exception("minio_upload_failed", error=str(e), filename=filename)
             raise RuntimeError(f"MinIO upload failed for {filename}") from e
+
+    def upload_image_bytes_sync(
+        self,
+        image_bytes: bytes,
+        filename: Optional[str] = None,
+        content_type: str = "image/png",
+    ) -> str:
+        """Upload raw image bytes to MinIO and return a public image URL."""
+        return self.upload_bytes_sync(
+            data=image_bytes,
+            filename=filename,
+            content_type=content_type,
+        )
+
+    async def upload_bytes(
+        self,
+        data: bytes,
+        filename: str,
+        content_type: str = "application/octet-stream",
+    ) -> str:
+        """Asynchronously upload arbitrary bytes to MinIO."""
+        return await asyncio.to_thread(
+            self.upload_bytes_sync,
+            data=data,
+            filename=filename,
+            content_type=content_type,
+        )
 
     async def upload_image_bytes(
         self,
@@ -119,8 +146,8 @@ class StorageService:
     ) -> str:
         """Asynchronously upload raw image bytes to MinIO storage."""
         return await asyncio.to_thread(
-            self.upload_image_bytes_sync,
-            image_bytes=image_bytes,
+            self.upload_bytes_sync,
+            data=image_bytes,
             filename=filename,
             content_type=content_type,
         )

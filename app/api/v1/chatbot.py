@@ -28,13 +28,17 @@ from app.schemas.chat import (
     InterruptResponse,
     ResumeRequest,
     StreamResponse,
-    SuggestedQuestionsResponse,
 )
 from app.services.session_naming import maybe_name_session
 from app.services.suggested_questions import generate_suggested_questions
 
 router = APIRouter()
 agent = LangGraphAgent()
+
+
+def _format_sse_event(payload: dict[str, object]) -> str:
+    """Serialize a JSON payload as a server-sent event."""
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -348,35 +352,89 @@ async def get_session_messages(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/suggested-questions", response_model=SuggestedQuestionsResponse)
+@router.get("/suggested-questions")
 @limiter.limit(settings.RATE_LIMIT_ENDPOINTS["suggested_questions"][0])
 async def get_suggested_questions(
     request: Request,
     session: Session = Depends(get_current_session),
 ):
-    """Generate AI suggested starter questions for the chat greeting.
+    """Stream AI suggested starter questions for the chat greeting over SSE.
 
     Args:
         request: The FastAPI request object for rate limiting.
         session: The current session from the auth token.
 
     Returns:
-        SuggestedQuestionsResponse: Recommended clickable starter questions.
+        StreamingResponse: SSE events containing status and recommended questions.
     """
-    try:
-        logger.info(
-            "suggested_questions_request_received",
-            session_id=session.id,
-            user_id=session.user_id,
+    logger.info(
+        "suggested_questions_request_received",
+        session_id=session.id,
+        user_id=session.user_id,
+    )
+
+    async def event_generator():
+        """Yield an immediate status event, heartbeats, and the final result."""
+        generation_task = asyncio.create_task(
+            generate_suggested_questions(
+                session_id=session.id,
+                user_id=str(session.user_id),
+            )
         )
-        questions = await generate_suggested_questions(
-            session_id=session.id,
-            user_id=str(session.user_id),
-        )
-        return SuggestedQuestionsResponse(questions=questions)
-    except Exception as e:
-        logger.exception("suggested_questions_request_failed", session_id=session.id, error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        try:
+            yield _format_sse_event({"status": "generating", "done": False})
+
+            while not generation_task.done():
+                done, _ = await asyncio.wait({generation_task}, timeout=10)
+                if done:
+                    break
+                if await request.is_disconnected():
+                    logger.info("suggested_questions_client_disconnected", session_id=session.id)
+                    return
+                yield ": keep-alive\n\n"
+
+            if await request.is_disconnected():
+                return
+
+            questions = generation_task.result()
+            logger.info(
+                "suggested_questions_stream_completed",
+                session_id=session.id,
+                question_count=len(questions),
+            )
+            yield _format_sse_event(
+                {
+                    "questions": [question.model_dump(mode="json") for question in questions],
+                    "status": "completed",
+                    "done": True,
+                }
+            )
+        except asyncio.CancelledError:
+            logger.info("suggested_questions_stream_cancelled", session_id=session.id)
+            return
+        except Exception as e:
+            logger.exception("suggested_questions_request_failed", session_id=session.id, error=str(e))
+            yield _format_sse_event(
+                {
+                    "error": "推荐问题生成失败，请稍后重试",
+                    "status": "failed",
+                    "done": True,
+                }
+            )
+        finally:
+            if not generation_task.done():
+                generation_task.cancel()
+            await asyncio.gather(generation_task, return_exceptions=True)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.delete("/messages")

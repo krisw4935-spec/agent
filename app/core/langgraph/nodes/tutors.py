@@ -23,6 +23,9 @@ from langgraph.graph.state import Command
 from app.core.config import settings
 from app.core.langgraph.helpers import (
     degrade_tutor_tool_loop,
+    extract_manim_code,
+    get_last_user_content,
+    is_animation_request,
     is_rate_limit_error,
     normalize_messages,
 )
@@ -65,15 +68,28 @@ def _build_tutor_prompt(node: str, state: GraphState, username: str | None) -> s
                 f"\n\n## 审校专家修改意见 (请务必针对性修正)\n"
                 f"上一轮回答未通过质检审校，请认真修正后重新作答：\n{state.review_feedback}\n"
             )
-        return prompt
+    else:
+        prompt = load_node_prompt(
+            node,
+            username=username,
+            long_term_memory=state.long_term_memory,
+            review_feedback=state.review_feedback,
+            evolved_lessons=state.evolved_lessons,
+        )
 
-    return load_node_prompt(
-        node,
-        username=username,
-        long_term_memory=state.long_term_memory,
-        review_feedback=state.review_feedback,
-        evolved_lessons=state.evolved_lessons,
-    )
+    if is_animation_request(get_last_user_content(state.messages)):
+        prompt += (
+            "\n\n## 视频动画任务（高优先级，必须执行）\n"
+            "- 学生明确要求生成视频或动画，不能只用文字描述，也不能只调用静态绘图工具。\n"
+            "- 必须先调用 `render_math_animation`，生成完整可运行的 Manim Python 代码；代码必须包含 "
+            "`from manim import *` 和至少一个 `Scene` 子类。\n"
+            "- 等待工具返回 MP4 播放器和 MinIO 下载链接后，再给学生总结讲解。\n"
+            "- 最终回答必须原样保留工具返回的 `<video ...>` 播放器和 `[下载数学动画](url)` 链接；"
+            "不得声称已生成但不提供链接。\n"
+            "- 如果渲染失败，必须明确告知失败原因，不得伪造视频链接。\n"
+        )
+
+    return prompt
 
 
 async def run_tutor_with_tools(
@@ -98,6 +114,9 @@ async def run_tutor_with_tools(
     )
     tools_by_name = {tool.name: tool for tool in tutor_tools}
     new_messages: list[BaseMessage] = []
+    rendered_video_markup = ""
+    animation_requested = is_animation_request(get_last_user_content(state.messages))
+    should_force_animation_tool = animation_requested and settings.MANIM_ENABLED and "render_math_animation" in tools_by_name
 
     try:
         for round_idx in range(max_tool_rounds):
@@ -106,10 +125,36 @@ async def run_tutor_with_tools(
                     conversation,
                     tools=tutor_tools if tutor_tools else None,
                     config=config,
+                    tool_choice="render_math_animation" if should_force_animation_tool and round_idx == 0 else None,
                 )
             if not isinstance(response_message, BaseMessage):
                 raise TypeError("expected BaseMessage from llm_service.call")
             response_message = process_llm_response(response_message)
+            if should_force_animation_tool and isinstance(response_message, AIMessage) and not response_message.tool_calls:
+                recovered_code = extract_manim_code(response_message)
+                if recovered_code:
+                    response_message = AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "name": "render_math_animation",
+                                "args": {"code": recovered_code, "quality": "l"},
+                                "id": f"animation_recovered_{round_idx}",
+                                "type": "tool_call",
+                            }
+                        ],
+                    )
+                    logger.warning(
+                        "animation_tool_call_recovered_from_model_output",
+                        session_id=thread_id,
+                        code_length=len(recovered_code),
+                    )
+                else:
+                    logger.warning(
+                        "animation_tool_call_missing",
+                        session_id=thread_id,
+                        response_type=type(response_message).__name__,
+                    )
             new_messages.append(response_message)
             conversation.append(response_message)
 
@@ -132,9 +177,12 @@ async def run_tutor_with_tools(
                     continue
                 try:
                     tool_result = await tools_by_name[tc_name].ainvoke(tc_args, config=config)
+                    tool_result_text = str(tool_result)
+                    if tc_name == "render_math_animation" and "<video " in tool_result_text:
+                        rendered_video_markup = tool_result_text
                     tool_outputs.append(
                         ToolMessage(
-                            content=str(tool_result),
+                            content=tool_result_text,
                             name=tc_name,
                             tool_call_id=tc_id,
                         )
@@ -178,6 +226,12 @@ async def run_tutor_with_tools(
                     new_messages,
                     RuntimeError("max tool rounds exhausted"),
                 )
+                if rendered_video_markup:
+                    degraded_msg = AIMessage(
+                        content=f"{degraded_msg.content}\n\n{rendered_video_markup}",
+                        additional_kwargs=degraded_msg.additional_kwargs,
+                        id=degraded_msg.id,
+                    )
                 return Command(
                     update={
                         "messages": [degraded_msg],
@@ -192,6 +246,9 @@ async def run_tutor_with_tools(
             if isinstance(msg, AIMessage) and msg.content:
                 candidate_text = extract_text_content(msg.content)
                 break
+
+        if rendered_video_markup and "<video " not in candidate_text:
+            candidate_text = f"{candidate_text.rstrip()}\n\n{rendered_video_markup}"
 
         for i in range(len(new_messages) - 1, -1, -1):
             if isinstance(new_messages[i], AIMessage) and new_messages[i].content:

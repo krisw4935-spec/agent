@@ -264,6 +264,11 @@ class Settings:
         self.MINIO_BUCKET = os.getenv("MINIO_BUCKET", "math-teacher-images")
         self.MINIO_PUBLIC_URL = os.getenv("MINIO_PUBLIC_URL", "")
 
+        # Manim animation rendering service
+        self.MANIM_ENABLED = os.getenv("MANIM_ENABLED", "true").lower() in ("true", "1", "t", "yes")
+        self.MANIM_RENDER_URL = os.getenv("MANIM_RENDER_URL", "http://127.0.0.1:8001/render")
+        self.MANIM_RENDER_TIMEOUT = int(os.getenv("MANIM_RENDER_TIMEOUT", "300"))
+
         # Apply environment-specific settings
         self.apply_environment_settings()
 

@@ -1,5 +1,6 @@
 """Pure helpers shared by LangGraph tutor nodes and message processing."""
 
+import re
 from typing import Literal
 
 from langchain_core.messages import (
@@ -43,6 +44,30 @@ CONTINUATION_PREFIXES: tuple[str, ...] = (
     "请紧接着上一轮",
 )
 
+ANIMATION_REQUEST_KEYWORDS: tuple[str, ...] = (
+    "生成视频",
+    "做视频",
+    "制作视频",
+    "视频讲解",
+    "视频演示",
+    "动画讲解",
+    "生成动画",
+    "制作动画",
+    "动态演示",
+    "动态展示",
+    "可视化动画",
+    "manim",
+)
+
+ANIMATION_REQUEST_NEGATIONS: tuple[str, ...] = (
+    "不要视频",
+    "不需要视频",
+    "无需视频",
+    "不要动画",
+    "不需要动画",
+    "无需动画",
+)
+
 
 def is_continuation_prompt(text: str) -> bool:
     """Check whether a user prompt represents a continuation/resume instruction."""
@@ -62,6 +87,38 @@ def is_continuation_prompt(text: str) -> bool:
         return True
 
     return False
+
+
+def is_animation_request(text: str) -> bool:
+    """Detect explicit requests for a generated video or mathematical animation."""
+    normalized = (text or "").strip().lower()
+    if not normalized or any(marker in normalized for marker in ANIMATION_REQUEST_NEGATIONS):
+        return False
+    return any(keyword in normalized for keyword in ANIMATION_REQUEST_KEYWORDS)
+
+
+def extract_manim_code(message: BaseMessage) -> str:
+    """Recover a complete Manim code block when a model emits code without a tool call."""
+    content = extract_text_content(message.content)
+    reasoning = message.additional_kwargs.get("reasoning_content", "")
+    reasoning_text = reasoning if isinstance(reasoning, str) else ""
+    combined_text = "\n".join(part for part in (content, reasoning_text) if part)
+    code_blocks = re.findall(
+        r"```(?:python|py)?\s*(.*?)```",
+        combined_text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    candidates: list[str] = []
+    for code_block in code_blocks:
+        candidate = code_block.strip()
+        if "from manim import" not in candidate or not re.search(r"class\s+\w+\s*\([^)]*Scene", candidate):
+            continue
+        try:
+            compile(candidate, "<manim_response>", "exec")
+        except SyntaxError:
+            continue
+        candidates.append(candidate)
+    return max(candidates, key=len, default="")
 
 
 def get_last_user_content(messages: list) -> str:

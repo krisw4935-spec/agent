@@ -100,6 +100,7 @@ class LLMService:
         response_format: None = ...,
         tools: Optional[List] = ...,
         config: Optional[Any] = ...,
+        tool_choice: Optional[str] = ...,
         **model_kwargs: Any,
     ) -> BaseMessage: ...
 
@@ -112,6 +113,7 @@ class LLMService:
         response_format: Type[T],
         tools: Optional[List] = ...,
         config: Optional[Any] = ...,
+        tool_choice: Optional[str] = ...,
         **model_kwargs: Any,
     ) -> T: ...
 
@@ -122,6 +124,7 @@ class LLMService:
         response_format: Optional[Type[BaseModel]] = None,
         tools: Optional[List] = None,
         config: Optional[Any] = None,
+        tool_choice: Optional[str] = None,
         **model_kwargs: Any,
     ) -> Union[BaseMessage, BaseModel]:
         """Call the LLM with retries and circular fallback.
@@ -136,6 +139,7 @@ class LLMService:
             tools: Optional tools to bind for this one-off call (does not mutate
                 the default agent tool bindings).
             config: Optional RunnableConfig for LangChain/LangGraph streaming events.
+            tool_choice: Optional tool name to force when binding tools.
             **model_kwargs: Extra kwargs forwarded to ``LLMRegistry.get`` when
                 constructing a one-off model instance (e.g. ``temperature``,
                 ``max_tokens``, ``reasoning``).
@@ -151,7 +155,13 @@ class LLMService:
         try:
             return await asyncio.wait_for(
                 self._call_with_fallback(
-                    messages, model_name, response_format, model_kwargs, tools=tools, config=config
+                    messages,
+                    model_name,
+                    response_format,
+                    model_kwargs,
+                    tools=tools,
+                    config=config,
+                    tool_choice=tool_choice,
                 ),
                 timeout=settings.LLM_TOTAL_TIMEOUT,
             )
@@ -272,6 +282,7 @@ class LLMService:
         model_kwargs: dict,
         tools: Optional[List] = None,
         config: Optional[Any] = None,
+        tool_choice: Optional[str] = None,
     ) -> Union[BaseMessage, BaseModel]:
         """Build path-specific strategies and delegate to the shared fallback loop.
 
@@ -287,7 +298,7 @@ class LLMService:
         def _override_target(idx: int) -> Any:
             base: Any = LLMRegistry.get(LLMRegistry.LLMS[idx]["name"], **model_kwargs)
             if tools:
-                base = base.bind_tools(tools)
+                base = base.bind_tools(tools, tool_choice=tool_choice)
             if response_format:
                 method = getattr(settings, "STRUCTURED_OUTPUT_METHOD", "function_calling")
                 return base.with_structured_output(response_format, method=method)
@@ -299,7 +310,7 @@ class LLMService:
         def _default_advance(_: int) -> Optional[int]:
             return self._current_model_index if self._switch_to_next_model() else None
 
-        if model_name or response_format or model_kwargs or tools:
+        if model_name or response_format or model_kwargs or tools or tool_choice:
             all_names = LLMRegistry.get_all_names()
             if model_name and model_name not in all_names:
                 logger.error("requested_model_not_found", model_name=model_name)

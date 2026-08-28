@@ -44,6 +44,7 @@ dependencies = [
     "e2b-code-interpreter>=2.9.1",
     "matplotlib>=3.11.1",
     "minio>=7.2.20",
+    "httpx>=0.28.1",
 ]
 
 [project.optional-dependencies]

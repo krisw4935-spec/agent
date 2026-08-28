@@ -97,6 +97,28 @@ When `VALKEY_HOST` is set, the app uses Valkey/Redis for memory search caching a
 
 ---
 
+## Manim 数学动画
+
+`render_math_animation` 会把动态 Manim 代码发送到独立渲染服务，生成 MP4 后上传到 MinIO，并将播放器和下载链接交给数学导师展示。
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `MANIM_ENABLED` | `true` | 是否启用数学动画工具 |
+| `MANIM_RENDER_URL` | `http://127.0.0.1:8001/render` | Manim 服务的渲染接口 |
+| `MANIM_RENDER_TIMEOUT` | `300` | 默认单次渲染超时（秒） |
+
+启动独立渲染服务：
+
+```bash
+cd /Users/yangxiongwei1/manim
+source .venv/bin/activate
+uvicorn app:app --host 127.0.0.1 --port 8001
+```
+
+动态 Manim 代码会在渲染服务所在机器执行。公网或多租户部署必须增加鉴权、容器隔离、CPU/内存限制和任务队列。
+
+---
+
 ## Rate limiting
 
 | Variable | Default | Description |

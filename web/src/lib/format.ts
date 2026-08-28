@@ -46,6 +46,7 @@ const TOOL_NAME_MAP: Record<string, string> = {
   router_decision: '题目意图路由与策略规划',
   python_sandbox_execute: 'Python 代码沙箱自验',
   plot_math_function: 'Matplotlib 函数图表绘制',
+  render_math_animation: 'Manim 数学动画生成',
   sympy_calculate: 'SymPy 代数精确核算',
   ask_human: '等待用户确认与选择',
   critic_review: 'Critic 双智能体审校与质检',
@@ -73,7 +74,7 @@ export function getToolOutputLabel(toolName?: string): string {
   return '📤 执行结果 (Execution Output)'
 }
 
-export const DEFAULT_GREETING = '你好！我是 **Math Teacher** 数学导师。\n\n我可以为你：\n- 📈 **图文并茂讲解函数与几何**（自动画图）\n- ✏️ **批改作业与推导步骤**\n- 🎯 **设计针对性练习题**\n\n点击下方推荐问题开始，或直接输入你的数学问题吧！'
+export const DEFAULT_GREETING = '你好！我是 **Math Teacher** 数学导师。\n\n我可以为你：\n- 📈 **图文并茂讲解函数与几何**（自动画图）\n- 🎞️ **生成函数、几何与证明过程的数学动画**\n- ✏️ **批改作业与推导步骤**\n- 🎯 **设计针对性练习题**\n\n点击下方推荐问题开始，或直接输入你的数学问题吧！'
 
 export const WELCOME_AUTH_MESSAGE = '欢迎使用 **Math Teacher** 智能数学导师！\n\n请先登录或注册账号，以使用数学辅导与保存历史记录。'
 

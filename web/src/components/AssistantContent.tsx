@@ -121,7 +121,9 @@ function ToolCallBlock({
                 ? (
                   <div>
                     <Text type="secondary" size="small" strong>{getToolOutputLabel(toolName)}</Text>
-                    <pre className="tool-output">{toolOutput}</pre>
+                    {toolName === 'render_math_animation'
+                      ? <TextBlock content={toolOutput} />
+                      : <pre className="tool-output">{toolOutput}</pre>}
                   </div>
                 )
                 : null}
@@ -162,6 +164,10 @@ function TextBlock({ content, streaming = false }: { content: string, streaming?
       className="markdown-body"
       plugins={streamdownPlugins}
       components={katexStreamdownComponents}
+      allowedTags={{
+        video: ['controls', 'preload', 'src', 'title', 'class'],
+        source: ['src', 'type'],
+      }}
       isAnimating={streaming}
       mode={streaming ? 'streaming' : 'static'}
     >

@@ -5,6 +5,7 @@ from typing import Dict, List, Optional
 from langchain_core.tools.base import BaseTool
 
 from app.core.langgraph.tools.ask_human import ask_human
+from app.core.langgraph.tools.manim_renderer import render_math_animation
 from app.core.langgraph.tools.math_plotter import plot_math_function
 from app.core.langgraph.tools.python_sandbox import python_sandbox_execute
 from app.core.langgraph.tools.sympy_calculator import sympy_calculate
@@ -19,10 +20,10 @@ class SkillRegistry:
         """Initialize registry and register default skills."""
         self._skills: Dict[str, Skill] = {}
         self._node_skill_mappings: Dict[str, List[str]] = {
-            "explain": ["math_visualization", "algebra_calculus", "python_sandbox"],
-            "verify": ["algebra_calculus", "python_sandbox", "math_visualization"],
-            "practice": ["algebra_calculus", "math_visualization", "python_sandbox"],
-            "chat": ["algebra_calculus", "math_visualization", "python_sandbox", "student_clarification"],
+            "explain": ["math_visualization", "math_animation", "algebra_calculus", "python_sandbox"],
+            "verify": ["algebra_calculus", "math_visualization", "math_animation", "python_sandbox"],
+            "practice": ["algebra_calculus", "math_visualization", "math_animation", "python_sandbox"],
+            "chat": ["algebra_calculus", "math_visualization", "math_animation", "python_sandbox", "student_clarification"],
         }
         self._register_default_skills()
 
@@ -58,7 +59,26 @@ class SkillRegistry:
             )
         )
 
-        # 3. Python Computational Sandbox Skill
+        # 3. Mathematical Animation Skill
+        self.register(
+            Skill(
+                name="math_animation",
+                display_name="Manim 数学动画技能",
+                category="visualization",
+                description="使用 Manim 生成函数、几何、坐标系和推导过程的可播放数学动画。",
+                tools=[render_math_animation],
+                prompt_guidance=(
+                    "- **视频/动画请求是强触发条件**：学生说“生成视频”“视频讲解”“动画演示”“动态展示”或明确提到 Manim 时，"
+                    "必须调用 `render_math_animation`，不能只文字回答，也不能用 `plot_math_function` 替代。\n"
+                    "  代码必须包含 `from manim import *` 和一个 `Scene` 子类；优先使用 `quality='l'` 预览，复杂动画再使用 `quality='m'`。\n"
+                    "  工具会把 MP4 上传到 MinIO；工具返回的 `<video ...>` 播放器和 `[下载数学动画](url)` 链接必须原样复制到最终回答中，"
+                    "不要把 Manim Python 代码展示给学生。\n"
+                    "  若学生没有要求视频，只有在静态图像不足以说明函数变换、几何构造、证明步骤或动态图形关系时才调用该工具。"
+                ),
+            )
+        )
+
+        # 4. Python Computational Sandbox Skill
         self.register(
             Skill(
                 name="python_sandbox",
@@ -72,7 +92,7 @@ class SkillRegistry:
             )
         )
 
-        # 4. Student Intent Clarification & Branch Confirmation Skill
+        # 5. Student Intent Clarification & Branch Confirmation Skill
         self.register(
             Skill(
                 name="student_clarification",
@@ -155,7 +175,10 @@ class SkillRegistry:
 
     def get_tools_for_node(self, node: str) -> List[BaseTool]:
         """Get the combined list of tools for a specific LangGraph tutoring node."""
-        skill_names = self._node_skill_mappings.get(node, ["algebra_calculus", "math_visualization", "python_sandbox"])
+        skill_names = self._node_skill_mappings.get(
+            node,
+            ["algebra_calculus", "math_visualization", "math_animation", "python_sandbox"],
+        )
         tools: List[BaseTool] = []
         for name in skill_names:
             skill = self._skills.get(name)

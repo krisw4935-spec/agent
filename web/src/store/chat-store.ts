@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { fetchMessages, fetchSuggestedQuestions, interruptChat, resumeChatStream, sendChat, streamChat } from '@/api/chatbot'
+import { fetchMessages, interruptChat, resumeChatStream, sendChat, streamChat, streamSuggestedQuestions } from '@/api/chatbot'
 import { DEFAULT_GREETING } from '@/lib/format'
 import { useAuthStore } from '@/store/auth-store'
 import type { ChatMessage, MessageSegment, StreamPayload, StreamSegment, SuggestedQuestion } from '@/types'
@@ -259,8 +259,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     set({ suggestedQuestionsLoading: true })
     try {
-      const data = await fetchSuggestedQuestions(sessionToken)
-      const questions = data.questions || []
+      let questions: SuggestedQuestion[] = []
+      for await (const payload of streamSuggestedQuestions(sessionToken)) {
+        if (payload.questions)
+          questions = payload.questions
+      }
       if (!isGreetingOnly(get().messages)) {
         set({ suggestedQuestionsLoading: false })
         return

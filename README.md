@@ -100,6 +100,7 @@ This works as a drop-in replacement anywhere `ChatOpenAI` is used in your LangGr
 - **LangGraph** stateful agent with checkpointing, tool calling, and human-in-the-loop support
 - **Long-term memory** via mem0 + pgvector — semantic search per user, cache-backed
 - **LLM service** with circular model fallback, exponential backoff retries, and total timeout budget
+- **Manim 数学动画** — 根据数学问题生成可播放 MP4，并返回下载链接
 - **Langfuse** tracing on all LLM calls; Prometheus metrics + Grafana dashboards
 - **JWT auth** with session management; rate limiting via slowapi
 - **Alembic** migrations; optional Valkey/Redis cache layer
@@ -115,6 +116,23 @@ make docker-up                     # starts API + PostgreSQL
 ```
 
 Open [http://localhost:8000/docs](http://localhost:8000/docs) to see the interactive API.
+
+### 数学动画
+
+启动独立的 Manim 服务后，直接在对话中提出“请用动画讲解二次函数平移”或“动态演示圆的切线构造”，agent 会自动调用 `render_math_animation`，并在回答中展示播放器和 MP4 下载链接。
+
+```bash
+cd /Users/yangxiongwei1/manim
+source .venv/bin/activate
+uvicorn app:app --host 127.0.0.1 --port 8001
+```
+
+如果渲染服务不在本机，请在 agent 的 `.env.development` 中设置：
+
+```env
+MANIM_ENABLED=true
+MANIM_RENDER_URL=http://<manim-host>:8001/render
+```
 
 > For local development without Docker see [docs/getting-started.md](docs/getting-started.md).
 

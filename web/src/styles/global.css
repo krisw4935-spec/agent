@@ -161,6 +161,15 @@ body .semi-always-light {
   cursor: zoom-in;
 }
 
+.markdown-body video {
+  display: block;
+  width: min(100%, 720px);
+  margin: 12px auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #0b1f33;
+}
+
 .markdown-body [data-streamdown='link'] {
   color: rgb(var(--brand-primary));
 }

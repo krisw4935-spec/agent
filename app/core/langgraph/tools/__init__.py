@@ -8,9 +8,16 @@ and other external integrations.
 from langchain_core.tools.base import BaseTool
 
 from .ask_human import ask_human
+from .manim_renderer import render_math_animation
 from .math_plotter import plot_math_function
 from .python_sandbox import python_sandbox_execute
 from .sympy_calculator import sympy_calculate
 
-# Math teacher tools: SymPy calculator, E2B/Python sandbox, Function/Geometry Plotter, and human clarification.
-tools: list[BaseTool] = [sympy_calculate, plot_math_function, python_sandbox_execute, ask_human]
+# Math teacher tools: exact calculation, static plots, animated plots, sandbox, and human clarification.
+tools: list[BaseTool] = [
+    sympy_calculate,
+    plot_math_function,
+    render_math_animation,
+    python_sandbox_execute,
+    ask_human,
+]

@@ -9,16 +9,79 @@ interface ChatResponse {
   messages: ChatMessage[]
 }
 
-interface SuggestedQuestionsResponse {
-  questions: SuggestedQuestion[]
+export interface SuggestedQuestionsStreamPayload {
+  questions?: SuggestedQuestion[]
+  status?: string
+  error?: string
+  done?: boolean
 }
 
 export function fetchMessages(token: string, timeoutMs = 6000) {
   return api<MessagesResponse>('/chatbot/messages', { token, timeoutMs })
 }
 
-export function fetchSuggestedQuestions(token: string, timeoutMs = 12000) {
-  return api<SuggestedQuestionsResponse>('/chatbot/suggested-questions', { token, timeoutMs })
+export async function* streamSuggestedQuestions(
+  token: string,
+  signal?: AbortSignal,
+): AsyncGenerator<SuggestedQuestionsStreamPayload> {
+  const response = await fetch(`${API_BASE}/chatbot/suggested-questions`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'text/event-stream',
+    },
+    signal,
+  })
+
+  if (!response.ok) {
+    const errBody = await response.json().catch(() => ({})) as { detail?: string }
+    throw new Error(errBody.detail || `推荐问题请求失败 (${response.status})`)
+  }
+
+  const reader = response.body?.getReader()
+  if (!reader)
+    throw new Error('推荐问题流式响应不可用')
+
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done)
+      break
+
+    buffer += decoder.decode(value, { stream: true })
+    const chunks = buffer.split('\n\n')
+    buffer = chunks.pop() || ''
+
+    for (const chunk of chunks) {
+      const data = chunk
+        .split('\n')
+        .filter(line => line.startsWith('data: '))
+        .map(line => line.slice(6))
+        .join('\n')
+      if (!data)
+        continue
+
+      const payload = JSON.parse(data) as SuggestedQuestionsStreamPayload
+      if (payload.error)
+        throw new Error(payload.error)
+      yield payload
+    }
+  }
+
+  if (buffer.trim()) {
+    const data = buffer
+      .split('\n')
+      .filter(line => line.startsWith('data: '))
+      .map(line => line.slice(6))
+      .join('\n')
+    if (data) {
+      const payload = JSON.parse(data) as SuggestedQuestionsStreamPayload
+      if (payload.error)
+        throw new Error(payload.error)
+      yield payload
+    }
+  }
 }
 
 export function sendChat(token: string, messages: Pick<ChatMessage, 'role' | 'content'>[]) {
