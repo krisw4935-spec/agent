@@ -56,7 +56,7 @@ export function SuggestedQuestions() {
       <div className="flex items-center justify-between mb-2.5 text-xs text-[var(--semi-color-text-2)] font-medium">
         <div className="flex items-center gap-1.5">
           <span className="i-lucide-sparkles text-amber-500 w-3.5 h-3.5" aria-hidden="true" />
-          <span>推荐启发式探究题（小学 · 初中 · 高中）</span>
+          <span>AI 推荐数学探索题（难度随机）</span>
         </div>
         <span className="text-[11px] text-[var(--semi-color-text-3)] hidden sm:inline">点击卡片直接开启辅导</span>
       </div>

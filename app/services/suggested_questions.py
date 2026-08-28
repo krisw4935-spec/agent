@@ -15,63 +15,79 @@ from app.core.prompts import SUGGESTED_QUESTIONS_PROMPT
 from app.schemas.chat import SuggestedQuestion, SuggestedQuestionsResult
 from app.services.llm import llm_service
 
-INSPIRATION_POOLS: List[List[str]] = [
-    # 维度1：小学数学趣味与基础思维（1-6年级）
-    [
-        "小学趣味思维：经典鸡兔同笼问题的假设置换法与直观画图法",
-        "小学应用题：相遇追及行程问题与时钟分针时针重合规律",
-        "小学平面几何：剪纸拼图与长方形/正方形周长面积巧算",
-        "小学数感规律：高斯速算等差数列求和 1+2+...+100 及其生活巧算",
-        "小学生活数学：买几赠几打折优惠与购物最省钱方案",
-        "小学图形割补：用割补法巧算阴影部分面积与圆的周长认识",
-    ],
-    # 维度2：初中数学代数与几何进阶（7-9年级）
-    [
-        "初中勾股定理：用勾股定理测量建筑物高度与生活斜坡距离",
-        "初中一次函数：手机套餐选择/出租车计费的分段函数与最优化方案",
-        "初中平面几何：相似三角形在阳光投影测树高中的实际应用",
-        "初中方程与不等式：二元一次方程组在浓度配比与配料问题中的应用",
-        "初中反比例函数：物理杠杆平衡原理与双杠受力关系图示",
-        "初中概率统计：商场幸运大转盘与中奖概率的统计学揭秘",
-    ],
-    # 维度3：高中数学函数与空间探究（10-12年级）
-    [
-        "高中三角函数：摩天轮座舱高度随时间变化的正弦周期函数建模与图像绘制",
-        "高中二次函数与导数：投篮抛物线运动轨迹与最高点/最大射程极值问题",
-        "高中数列与金融：等比数列求和在房贷等额本息还款模型中的计算",
-        "高中立体几何：长方体与圆柱体在包装盒体积最大化设计中的空间几何探究",
-        "高中解析几何：汽车大灯与卫星天线抛物面镜的光学聚焦特性",
-        "高中排列组合：高考选科组合方式与彩票中奖概率的计数原理",
-    ],
-    # 维度4：综合生活建模与直觉挑战（中小学通用趣味）
-    [
-        "生活趣味建模：切一个圆形披萨，切 n 刀最多能分出多少块（割圆数列规律）",
-        "直觉思维挑战：天平称重用最少次数找出轻质假币（三分法思维）",
-        "反直觉找茬：无限循环小数 0.999... 为什么严格等于 1 的直观推导",
-        "自然数学之美：向日葵花盘与斐波那契数列螺旋对称之谜",
-        "趣味几何拓扑：一张纸条剪一刀为什么变成一个大环（莫比乌斯带的奇妙探索）",
-        "生活博弈策略：抢20游戏与必胜倒推策略（同余与余数周期）",
-    ],
+INSPIRATION_POOL: List[str] = [
+    "校园生活：设计一份班级春游路线，比较步行、公交和骑行的时间与费用",
+    "家庭消费：研究外卖满减、优惠券和配送费叠加后的最划算点单方案",
+    "运动竞技：用投篮命中率、跑步配速或足球射门数据比较选手表现",
+    "游戏策略：分析掷骰子、抽卡、猜数字或抢数游戏背后的获胜策略",
+    "自然观察：从树叶、蜂巢、花瓣、雪花或贝壳中寻找图形和数量规律",
+    "建筑设计：为窗户、拱门、楼梯或屋顶设计尺寸并估算材料用量",
+    "城市出行：根据地铁换乘、出租车计费或共享单车规则进行路线规划",
+    "食谱实验：按人数、比例和损耗调整饮料、蛋糕或果汁的配方",
+    "时间规律：研究钟表指针重合、日期循环、作息安排或倒计时中的规律",
+    "空间想象：用纸张、积木、魔方或包装盒探索展开图、体积和最短路线",
+    "视觉错觉：解释透视、镜面反射、旋转对称或看起来“不一样”的图形",
+    "测量挑战：不用直接攀爬，估算旗杆、大树、楼房或河宽的实际尺寸",
+    "数据侦探：从一张成绩、天气、步数或消费表中发现平均数之外的结论",
+    "工程优化：设计纸桥、纸盒、储水桶或围栏，让材料少但承载或容量更大",
+    "历史密码：用古人计数法、密码表、地图比例尺或历法讲一个数学故事",
+    "艺术创作：用分形、镶嵌、黄金分割或对称图案制作一幅数学画",
+    "反直觉现象：探究零、负数、无穷小数、概率或面积中一个容易误判的问题",
+    "经典趣题：从鸡兔同笼、假币、过河、切披萨或猴子分桃改编出新挑战",
+    "数字世界：解释二维码、验证码、二进制、像素或压缩中隐藏的数学",
+    "环保规划：估算家庭用水用电、垃圾分类或太阳能板的数量与节约效果",
+    "商业模拟：为奶茶店、文具店或游乐园制定定价、排队和库存方案",
+    "体育场馆：研究跑道、看台、球场边界或摩天轮运动中的角度和距离",
+    "天气与科学：用温度变化、降雨概率或日影长度建立一个简单数学模型",
+    "自由创作：把一个熟悉物品改造成同时包含代数、几何或概率问题的谜题",
+]
+
+QUESTION_STYLES: List[str] = [
+    "让学生先猜结果，再用数学验证直觉是否正确",
+    "设计成可以动手画图、折纸、测量或在纸上模拟的小实验",
+    "从一个真实选择出发，比较至少两种方案并说明如何优化",
+    "设置一个有趣的反例或错误解法，请导师带着找出错在哪里",
+    "设计成逐步升级的挑战，先解决基础问题，再追问一个变化情形",
+    "采用‘如果……会怎样’的假设，引导观察规律并归纳结论",
+    "让学生自己提出猜想，再给出适合其学段的证明或解释路线",
+    "把数学知识和体育、艺术、科技、自然或历史中的一个元素连接起来",
+    "设计一个适合两人或小组玩的数学游戏，并追问怎样制定必胜策略",
+    "从一张表格、图像或一组数据出发，要求解读而不是只计算答案",
+    "把题目改写成侦探故事，让关键数字或条件成为破案线索",
+    "鼓励用两种不同方法解决同一个问题，并比较它们的优缺点",
 ]
 
 
 def _pick_random_inspirations() -> List[str]:
-    """Sample one inspiration theme from each of the 4 grade dimensions (小学, 初中, 高中, 综合生活)."""
-    return [random.choice(pool) for pool in INSPIRATION_POOLS]
+    """Sample unrelated themes so each greeting can explore a different mix of ideas."""
+    return random.sample(INSPIRATION_POOL, k=4)
+
+
+def _build_user_prompt(inspirations: List[str]) -> str:
+    """Build a diversity-focused generation prompt from a random set of themes."""
+    styles = random.sample(QUESTION_STYLES, k=4)
+    creative_cards = "\n".join(
+        f"{index}. 主题方向：{inspiration}\n   建议切入方式：{style}"
+        for index, (inspiration, style) in enumerate(zip(inspirations, styles, strict=True), start=1)
+    )
+    return (
+        "请从下面 4 个随机创意卡片中自由取材，生成恰好 4 个适合新对话的数学推荐问题。"
+        "每张卡片只是灵感，不要照抄，也不要把四题机械写成同一种题型：\n"
+        f"{creative_cards}\n\n"
+        "本轮最重要的目标是发散：四个问题应尽量在主题场景、数学分支、提问方式和情绪体验上拉开差异。"
+        "不要求固定覆盖小学、初中、高中、综合四种维度，学段可以自然混合；但每题的 grade 必须和实际难度一致。"
+        "本轮避免优先生成鸡兔同笼、摩天轮、披萨切块、房贷或单纯解方程等套路，除非对它们做出明显新颖的改编。"
+        "问题必须生动具体、学生一看就想点击，并且可以直接作为发给数学导师的完整提问。"
+    )
 
 
 async def generate_suggested_questions(
     session_id: Optional[str] = None,
     user_id: Optional[str] = None,
 ) -> list[SuggestedQuestion]:
-    """Generate starter questions via LLM with Langfuse tracing across Elementary, Middle, and High school dimensions."""
+    """Generate diverse starter questions via LLM while keeping each question within K-12."""
     inspirations = _pick_random_inspirations()
-    theme_bullet_points = "\n".join(f"{i + 1}. {item}" for i, item in enumerate(inspirations))
-    user_prompt = (
-        f"请基于以下 4 个涵盖小学、初中、高中及生活趣味维度的灵感，分别构思 4 个极具吸引力、符合中小学认知难度的推荐问题：\n"
-        f"{theme_bullet_points}\n\n"
-        "请确保生成的推荐问题难度严格适配中小学（小学、初中、高中）知识体系，拒绝大学超纲难题，问题生动具体、可直接点击发送。"
-    )
+    user_prompt = _build_user_prompt(inspirations)
 
     callbacks: list[BaseCallbackHandler] = [langfuse_callback_handler] if settings.LANGFUSE_TRACING_ENABLED else []
     run_config: RunnableConfig = {

@@ -30,7 +30,7 @@ cp .env.example .env.development
 | `OPENAI_API_KEY` | — | Yes | OpenAI API key |
 | `DEFAULT_LLM_MODEL` | `gpt-5-mini` | No | Starting model — see [LLM Service](llm-service.md) for fallback order |
 | `DEFAULT_LLM_TEMPERATURE` | `0.2` | No | Temperature for chat completions |
-| `MAX_TOKENS` | `2000` | No | Max tokens per LLM response |
+| `MAX_TOKENS` | `32768` | No | Max completion tokens per LLM response, including model reasoning tokens |
 | `MAX_LLM_CALL_RETRIES` | `3` | No | Retries per model before switching to fallback |
 | `LLM_TOTAL_TIMEOUT` | `60` | No | Max seconds for the entire fallback loop |
 | `SESSION_NAMING_ENABLED` | `true` | No | Auto-generate a session title from the user's first message using an LLM background task |
