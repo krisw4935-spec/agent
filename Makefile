@@ -132,7 +132,7 @@ pre-commit-update:
 	uv run pre-commit autoupdate
 
 # ---------------------------------------------------------------------------
-# Docker — single image (API + React UI) + database
+# Docker — API image + database
 # ---------------------------------------------------------------------------
 docker-build:
 	$(call check_env)
@@ -247,9 +247,9 @@ help:
 	@echo "  pre-commit           Run all pre-commit hooks"
 	@echo "  pre-commit-update    Update pre-commit hook versions"
 	@echo ""
-	@echo "Docker (API + React UI + DB):"
-	@echo "  docker-build         Build bundled API + React UI image"
-	@echo "  docker-up            Build and start bundled app + DB containers"
+	@echo "Docker (API + DB):"
+	@echo "  docker-build         Build API image"
+	@echo "  docker-up            Build and start API + DB containers"
 	@echo "  docker-down          Stop containers"
 	@echo "  docker-logs          Tail container logs"
 	@echo "  docker-migrate       Run migrations inside the app container"

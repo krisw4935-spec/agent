@@ -4,7 +4,7 @@ import { HumanInterruptCard } from '@/components/HumanInterruptCard'
 import { getFriendlyToolName, getToolInputLabel, getToolOutputLabel } from '@/lib/format'
 import { extractThinkingFromContent } from '@/lib/markdown'
 import { katexStreamdownComponents } from '@/lib/katex-streamdown'
-import { streamdownPlugins } from '@/lib/streamdown'
+import { normalizeLatexDelimiters, streamdownPlugins } from '@/lib/streamdown'
 import { useChatStore } from '@/store/chat-store'
 import type { MessageSegment, ToolCall } from '@/types'
 
@@ -66,7 +66,9 @@ function ThinkingBlock({ content, completed, elapsed }: { content: string, compl
         )}
         itemKey="thinking"
       >
-        <div className="thinking-content">{content}</div>
+        <div className="thinking-content">
+          <TextBlock content={content} streaming={!completed} />
+        </div>
       </Collapse.Panel>
     </Collapse>
   )
@@ -121,9 +123,7 @@ function ToolCallBlock({
                 ? (
                   <div>
                     <Text type="secondary" size="small" strong>{getToolOutputLabel(toolName)}</Text>
-                    {toolName === 'render_math_animation'
-                      ? <TextBlock content={toolOutput} />
-                      : <pre className="tool-output">{toolOutput}</pre>}
+                    <TextBlock content={toolOutput} streaming={!completed} />
                   </div>
                 )
                 : null}
@@ -171,7 +171,7 @@ function TextBlock({ content, streaming = false }: { content: string, streaming?
       isAnimating={streaming}
       mode={streaming ? 'streaming' : 'static'}
     >
-      {content}
+      {normalizeLatexDelimiters(content)}
     </Streamdown>
   )
 }

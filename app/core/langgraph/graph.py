@@ -55,7 +55,6 @@ from app.core.langgraph.nodes import (
     make_router_node,
     make_tutor_node_handlers,
 )
-from app.core.langgraph.tools import tools
 from app.core.logging import logger
 from app.core.observability import langfuse_callback_handler, langfuse_trace_context
 from app.schemas import Message
@@ -114,8 +113,6 @@ class LangGraphAgent:
     def __init__(self):
         """Initialize the LangGraph Agent with necessary components."""
         self.llm_service = llm_service
-        self.llm_service.bind_tools(tools)
-        self.tools_by_name = {tool.name: tool for tool in tools}
         self._connection_pool: Optional[PostgresConnPool] = None
         self._graph: Optional[CompiledStateGraph] = None
         self._active_tasks: dict[str, set[asyncio.Task[Any]]] = {}

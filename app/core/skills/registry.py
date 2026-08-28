@@ -16,6 +16,64 @@ from app.core.skills.base import Skill
 class SkillRegistry:
     """Registry that manages agent skills, tools, and domain instructions."""
 
+    _QUERY_SKILL_TRIGGERS: Dict[str, tuple[str, ...]] = {
+        "algebra_calculus": (
+            "计算",
+            "求解",
+            "解方程",
+            "方程",
+            "导数",
+            "求导",
+            "积分",
+            "极限",
+            "极值",
+            "最值",
+            "因式分解",
+            "零点",
+            "顶点",
+            "验算",
+            "solve",
+            "derivative",
+            "integral",
+        ),
+        "math_visualization": (
+            "画图",
+            "绘图",
+            "函数图像",
+            "图像",
+            "可视化",
+            "坐标系",
+            "抛物线图",
+            "plot",
+            "graph",
+        ),
+        "math_animation": (
+            "动画",
+            "视频",
+            "动态演示",
+            "动态展示",
+            "manim",
+            "animation",
+        ),
+        "python_sandbox": (
+            "python",
+            "代码",
+            "运行",
+            "模拟",
+            "仿真",
+            "统计",
+            "数值",
+            "算法",
+            "sandbox",
+        ),
+        "student_clarification": (
+            "请选择",
+            "选择解法",
+            "需要确认",
+            "请确认",
+        ),
+    }
+
     def __init__(self):
         """Initialize registry and register default skills."""
         self._skills: Dict[str, Skill] = {}
@@ -179,6 +237,10 @@ class SkillRegistry:
             node,
             ["algebra_calculus", "math_visualization", "math_animation", "python_sandbox"],
         )
+        return self.get_tools_for_skills(skill_names)
+
+    def get_tools_for_skills(self, skill_names: List[str]) -> List[BaseTool]:
+        """Get the deduplicated tools belonging to the selected skills."""
         tools: List[BaseTool] = []
         for name in skill_names:
             skill = self._skills.get(name)
@@ -188,9 +250,26 @@ class SkillRegistry:
                         tools.append(tool)
         return tools
 
+    def get_skill_names_for_query(self, node: str, query: str) -> List[str]:
+        """Select only skills whose capabilities are relevant to the current query."""
+        node_skill_names = self._node_skill_mappings.get(
+            node,
+            ["algebra_calculus", "math_visualization", "math_animation", "python_sandbox"],
+        )
+        normalized_query = (query or "").casefold()
+        return [
+            name
+            for name in node_skill_names
+            if any(trigger.casefold() in normalized_query for trigger in self._QUERY_SKILL_TRIGGERS.get(name, ()))
+        ]
+
     def get_prompt_guide_for_node(self, node: str) -> str:
         """Generate formatted skill guidelines to inject into system prompts."""
         skill_names = self._node_skill_mappings.get(node, [])
+        return self.get_prompt_guide_for_skills(skill_names)
+
+    def get_prompt_guide_for_skills(self, skill_names: List[str]) -> str:
+        """Generate prompt guidance for only the selected skills."""
         guidance_lines = []
         for name in skill_names:
             skill = self._skills.get(name)

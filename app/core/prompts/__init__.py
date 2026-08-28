@@ -83,7 +83,12 @@ def load_node_prompt(node: str, username: Optional[str] = None, **kwargs) -> str
         long_term_memory=kwargs.get("long_term_memory", ""),
     )
 
-    skill_guide = skill_registry.get_prompt_guide_for_node(node)
+    selected_skill_names = kwargs.get("skill_names")
+    skill_guide = (
+        skill_registry.get_prompt_guide_for_skills(selected_skill_names)
+        if selected_skill_names is not None
+        else skill_registry.get_prompt_guide_for_node(node)
+    )
     if skill_guide:
         base_prompt += f"\n\n## 推荐调用的专业数学技能 (Registered Skills)\n{skill_guide}\n"
 

@@ -5,7 +5,7 @@
 ```mermaid
 graph TB
     subgraph stack["Full stack (make stack-up)"]
-        app["app\n(FastAPI + React UI, port 8000)"]
+        app["app\n(FastAPI API, port 8000)"]
         db["db\n(PostgreSQL + pgvector, port 5432)"]
         valkey["valkey\n(Valkey/Redis, port 6379)"]
         prometheus["prometheus\n(port 9090)"]
@@ -43,15 +43,14 @@ Valkey is always started but only used by the app when `VALKEY_HOST=valkey` is s
 ### API + database only (most common for development)
 
 ```bash
-make docker-up ENV=development     # build and start API + React UI + PostgreSQL
+make docker-up ENV=development     # build and start API + PostgreSQL
 make docker-down ENV=development   # stop
 make docker-logs ENV=development   # tail logs
 ```
 
-The `app` image is built in two stages: Node/pnpm compiles the React UI into
-`web/dist`, then the compiled files are copied into the Python image. FastAPI
-serves the UI and API from the same origin, so production deployments only
-need the app container on port 8000 (plus its database).
+The `app` image contains only the FastAPI backend. Production deployments need
+the app container on port 8000 plus its database. The React frontend remains
+available as a separate development target under `web/`.
 
 ### Langfuse cluster only
 
@@ -75,9 +74,8 @@ make stack-logs ENV=development    # tail all service logs
 make docker-build ENV=production
 ```
 
-This runs `scripts/build-docker.sh`, which builds and tags a single image
-containing both the FastAPI backend and the compiled React UI. No separate
-frontend server is required for this image.
+This runs `scripts/build-docker.sh`, which builds and tags a single API image.
+The frontend is not bundled into the API container.
 
 ## Running migrations inside Docker
 

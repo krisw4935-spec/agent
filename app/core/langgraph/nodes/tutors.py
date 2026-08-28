@@ -25,6 +25,7 @@ from app.core.langgraph.helpers import (
     degrade_tutor_tool_loop,
     extract_manim_code,
     get_last_user_content,
+    get_substantive_user_content,
     is_animation_request,
     is_rate_limit_error,
     normalize_messages,
@@ -52,7 +53,17 @@ _DEFAULT_MAX_TOOL_ROUNDS: dict[str, int] = {
 }
 
 
-def _build_tutor_prompt(node: str, state: GraphState, username: str | None) -> str:
+def _get_skill_query(state: GraphState) -> str:
+    """Use the original question when the current turn is only a continuation."""
+    return get_substantive_user_content(state.messages) or get_last_user_content(state.messages)
+
+
+def _build_tutor_prompt(
+    node: str,
+    state: GraphState,
+    username: str | None,
+    skill_names: list[str] | None = None,
+) -> str:
     """Build the system prompt for a tutor node, including skills and critic feedback."""
     if node == "chat":
         prompt = load_system_prompt(
@@ -60,7 +71,11 @@ def _build_tutor_prompt(node: str, state: GraphState, username: str | None) -> s
             long_term_memory=state.long_term_memory,
             evolved_lessons=state.evolved_lessons,
         )
-        skill_guide = skill_registry.get_prompt_guide_for_node("chat")
+        skill_guide = (
+            skill_registry.get_prompt_guide_for_skills(skill_names)
+            if skill_names is not None
+            else skill_registry.get_prompt_guide_for_node("chat")
+        )
         if skill_guide:
             prompt += f"\n\n## 推荐调用的专业数学技能 (Registered Skills)\n{skill_guide}\n"
         if state.review_feedback:
@@ -75,6 +90,7 @@ def _build_tutor_prompt(node: str, state: GraphState, username: str | None) -> s
             long_term_memory=state.long_term_memory,
             review_feedback=state.review_feedback,
             evolved_lessons=state.evolved_lessons,
+            skill_names=skill_names,
         )
 
     if is_animation_request(get_last_user_content(state.messages)):
@@ -97,6 +113,7 @@ async def run_tutor_with_tools(
     config: RunnableConfig,
     node: str,
     tutor_tools: list[BaseTool],
+    skill_names: list[str] | None = None,
     max_tool_rounds: int = 3,
 ) -> Command:
     """Run a tutoring node with an internal tool loop, then hand off to critic.
@@ -108,7 +125,7 @@ async def run_tutor_with_tools(
     username = config.get("metadata", {}).get("username")
     model_name = settings.DEFAULT_LLM_MODEL
 
-    system_prompt = _build_tutor_prompt(node, state, username)
+    system_prompt = _build_tutor_prompt(node, state, username, skill_names)
     conversation: list[Any] = dump_messages(
         prepare_messages(normalize_messages(state.messages), system_prompt)
     )
@@ -300,38 +317,46 @@ def make_tutor_node_handlers() -> dict[str, TutorHandler]:
     """Create explain / verify / practice / chat handlers sharing one tool-loop implementation."""
 
     async def explain(state: GraphState, config: RunnableConfig) -> Command:
+        skill_names = skill_registry.get_skill_names_for_query("explain", _get_skill_query(state))
         return await run_tutor_with_tools(
             state,
             config,
             node="explain",
-            tutor_tools=skill_registry.get_tools_for_node("explain"),
+            tutor_tools=skill_registry.get_tools_for_skills(skill_names),
+            skill_names=skill_names,
             max_tool_rounds=_DEFAULT_MAX_TOOL_ROUNDS["explain"],
         )
 
     async def verify(state: GraphState, config: RunnableConfig) -> Command:
+        skill_names = skill_registry.get_skill_names_for_query("verify", _get_skill_query(state))
         return await run_tutor_with_tools(
             state,
             config,
             node="verify",
-            tutor_tools=skill_registry.get_tools_for_node("verify"),
+            tutor_tools=skill_registry.get_tools_for_skills(skill_names),
+            skill_names=skill_names,
             max_tool_rounds=_DEFAULT_MAX_TOOL_ROUNDS["verify"],
         )
 
     async def practice(state: GraphState, config: RunnableConfig) -> Command:
+        skill_names = skill_registry.get_skill_names_for_query("practice", _get_skill_query(state))
         return await run_tutor_with_tools(
             state,
             config,
             node="practice",
-            tutor_tools=skill_registry.get_tools_for_node("practice"),
+            tutor_tools=skill_registry.get_tools_for_skills(skill_names),
+            skill_names=skill_names,
             max_tool_rounds=_DEFAULT_MAX_TOOL_ROUNDS["practice"],
         )
 
     async def chat(state: GraphState, config: RunnableConfig) -> Command:
+        skill_names = skill_registry.get_skill_names_for_query("chat", _get_skill_query(state))
         return await run_tutor_with_tools(
             state,
             config,
             node="chat",
-            tutor_tools=skill_registry.get_tools_for_node("chat"),
+            tutor_tools=skill_registry.get_tools_for_skills(skill_names),
+            skill_names=skill_names,
             max_tool_rounds=_DEFAULT_MAX_TOOL_ROUNDS["chat"],
         )
 

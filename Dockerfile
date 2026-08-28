@@ -28,34 +28,11 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-install-project
 
 
-FROM node:22-bookworm-slim AS frontend-builder
-
-WORKDIR /web
-ENV CI=true
-
-# Install the package manager used by the locked frontend dependencies.
-RUN corepack enable
-
-# Fetch frontend dependencies before copying source files for better caching.
-COPY web/package.json web/pnpm-lock.yaml ./
-RUN pnpm fetch
-
-# Link the fetched dependencies after copying source files. Lifecycle scripts
-# are not needed to compile the static UI and are disabled so pnpm's
-# non-interactive build policy cannot block the container build.
-COPY web/ ./
-RUN pnpm install --offline --frozen-lockfile --ignore-scripts && pnpm build
-
-
 FROM backend-base AS runtime
 
-# Copy the application and install the project itself against the locked deps.
+# Copy the API application and install the project itself against the locked deps.
 COPY . .
 RUN uv sync --frozen
-
-# Include the compiled React application in the API image. FastAPI serves this
-# directory from the same origin and port as the API.
-COPY --from=frontend-builder /web/dist /app/web/dist
 
 # Make entrypoint script executable - do this before changing user
 RUN chmod +x /app/scripts/docker-entrypoint.sh

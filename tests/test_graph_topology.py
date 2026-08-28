@@ -75,3 +75,21 @@ def test_skill_registry_covers_all_tutor_nodes():
     for node in TUTOR_NODE_NAMES:
         tools = skill_registry.get_tools_for_node(node)
         assert tools, f"expected tools for tutor node {node}"
+
+
+def test_skill_registry_selects_tools_by_query():
+    """Only query-relevant skills should be selected for a tutor request."""
+    assert skill_registry.get_skill_names_for_query("explain", "请画出二次函数的函数图像") == [
+        "math_visualization"
+    ]
+    assert skill_registry.get_skill_names_for_query("verify", "请帮我验算这个方程") == ["algebra_calculus"]
+    assert skill_registry.get_skill_names_for_query("chat", "请生成一个动画演示") == ["math_animation"]
+    assert skill_registry.get_skill_names_for_query("chat", "请介绍一下学习方法") == []
+
+
+def test_skill_registry_keeps_human_clarification_chat_only():
+    """Human clarification is available only when chat explicitly needs a choice."""
+    assert skill_registry.get_skill_names_for_query("chat", "请选择代数解法还是几何解法") == [
+        "student_clarification"
+    ]
+    assert skill_registry.get_skill_names_for_query("explain", "请选择代数解法还是几何解法") == []

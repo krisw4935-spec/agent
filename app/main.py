@@ -2,7 +2,6 @@
 
 from contextlib import asynccontextmanager
 from datetime import datetime
-from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import (
@@ -12,8 +11,7 @@ from fastapi import (
 )
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
@@ -39,27 +37,6 @@ from app.services.memory import memory_service
 # Load environment variables
 load_dotenv()
 langfuse_init()
-
-_STATIC_DIR = Path(__file__).resolve().parent / "static"
-_WEB_DIST_DIR = Path(__file__).resolve().parents[1] / "web" / "dist"
-
-
-def _resolve_ui_dir() -> Path:
-    """Prefer Rsbuild output when present, otherwise fall back to legacy static UI."""
-    if (_WEB_DIST_DIR / "index.html").exists():
-        return _WEB_DIST_DIR
-    return _STATIC_DIR
-
-
-def _mount_frontend_static(app: FastAPI) -> None:
-    """Mount frontend build assets or legacy static UI."""
-    ui_dir = _resolve_ui_dir()
-    if ui_dir == _WEB_DIST_DIR:
-        app.mount("/static", StaticFiles(directory=str(_WEB_DIST_DIR / "static")), name="static")
-        return
-
-    app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -189,31 +166,6 @@ app.add_middleware(
 
 # Include API router
 app.include_router(api_router, prefix=settings.API_V1_STR)
-
-# Simple chat UI (static assets + HTML page)
-_mount_frontend_static(app)
-
-
-@app.get("/")
-@limiter.limit(settings.RATE_LIMIT_ENDPOINTS["root"][0])
-async def root(request: Request):
-    """Serve the Math Teacher chat UI."""
-    logger.info("root_endpoint_called")
-    return FileResponse(
-        _resolve_ui_dir() / "index.html",
-        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
-    )
-
-
-@app.get("/ui")
-@limiter.limit(settings.RATE_LIMIT_ENDPOINTS["root"][0])
-async def ui(request: Request):
-    """Alias for the chat UI."""
-    return FileResponse(
-        _resolve_ui_dir() / "index.html",
-        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
-    )
-
 
 @app.get("/api")
 @limiter.limit(settings.RATE_LIMIT_ENDPOINTS["root"][0])
